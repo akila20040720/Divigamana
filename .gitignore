@@ -1,3 +1,4 @@
 .env
 
 storage/logs/*.log
+config/local.php

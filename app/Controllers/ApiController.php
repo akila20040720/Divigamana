@@ -26,6 +26,21 @@ final class ApiController {
         $value=strip_tags($value);
         return function_exists('mb_substr') ? mb_substr($value,0,2500) : substr($value,0,2500);
     }
+    private static function readingContext($pdo,int $userId,int $serviceId): array {
+        $statement=$pdo->prepare("SELECT r.result_json FROM horoscope_requests q JOIN horoscope_results r ON r.request_id=q.id WHERE q.user_id=? AND q.service_id=? AND q.status='completed' ORDER BY r.id DESC LIMIT 3");
+        $statement->execute([$userId,$serviceId]);
+        $summaries=[]; $hashes=[];
+        while ($row=$statement->fetch()) {
+            $result=json_decode($row['result_json'],true);
+            if (!is_array($result)) continue;
+            $headings=[];
+            foreach (($result['sections']??[]) as $section) if (is_array($section)&&!empty($section['heading'])) $headings[]=$section['heading'];
+            $summary=trim(($result['title']??'').' '.implode(', ',$headings));
+            if ($summary!=='') $summaries[]=self::cleanAnswer($summary);
+            $hashes[]=hash('sha256',json_encode($result,JSON_UNESCAPED_UNICODE));
+        }
+        return ['previous_summaries'=>$summaries,'previous_hashes'=>$hashes];
+    }
     private static function databaseFailure(\Throwable $error): void {
         error_log('Divigamana database error: '.$error->getMessage());
         Http::json(['ok'=>false,'error'=>'Database connection failed. In cPanel, confirm the MySQL user is added to this database with ALL PRIVILEGES, then check the database name, username, and password in config/local.php.'],500);
@@ -126,12 +141,19 @@ final class ApiController {
             $existing=$pdo->prepare('SELECT r.result_json FROM horoscope_requests q JOIN horoscope_results r ON r.request_id=q.id WHERE q.user_id=? AND q.idempotency_key=?');
             $existing->execute([$user['id'],$idempotency]);
             if ($row=$existing->fetch()) Http::json(['ok'=>true,'result'=>json_decode($row['result_json'],true),'cached'=>true]);
+            $context=self::readingContext($pdo,(int)$user['id'],(int)$service['id']);
             $pdo->beginTransaction();
             $pdo->prepare("INSERT INTO horoscope_requests (user_id,service_id,status,locale,questionnaire_json,idempotency_key) VALUES (?,?, 'processing',?,?,?)")->execute([$user['id'],$service['id'],$input['locale']??'si-LK',json_encode($answers,JSON_UNESCAPED_UNICODE),$idempotency]);
             $requestId=(int)$pdo->lastInsertId();
             if ($service['paid']) $pdo->prepare("INSERT INTO payment_transactions (user_id,request_id,amount,currency,status,is_simulated,description) VALUES (?,?,20,'LKR','simulated_confirmed',1,'Simulated per-reading charge')")->execute([$user['id'],$requestId]);
             $pdo->commit();
-            $result=(new QwenProvider)->generate($service,$answers,$input['locale']??'si-LK');
+            $context['reading_reference']='request-'.$requestId.'-'.bin2hex(random_bytes(8));
+            $provider=new QwenProvider();
+            $result=$provider->generate($service,$answers,$input['locale']??'si-LK',$context);
+            if (in_array(hash('sha256',json_encode($result['result'],JSON_UNESCAPED_UNICODE)),$context['previous_hashes'],true)) {
+                $context['reading_reference']='retry-'.$requestId.'-'.bin2hex(random_bytes(12));
+                $result=$provider->generate($service,$answers,$input['locale']??'si-LK',$context);
+            }
             $pdo->prepare("INSERT INTO horoscope_results (request_id,result_json,model_name) VALUES (?,?,?)")->execute([$requestId,json_encode($result['result'],JSON_UNESCAPED_UNICODE),$result['model']]);
             $pdo->prepare("UPDATE horoscope_requests SET status='completed',completed_at=NOW() WHERE id=?")->execute([$requestId]);
             $pdo->prepare('INSERT INTO ai_usage_logs (request_id,model_name,total_tokens,duration_ms) VALUES (?,?,?,?)')->execute([$requestId,$result['model'],$result['tokens'],$result['duration_ms']]);
