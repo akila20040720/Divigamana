@@ -11,7 +11,8 @@ return [
         'api_key' => '',
         'base_url' => 'https://{WORKSPACE_ID}.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1',
         'model' => 'qwen-plus',
-        'timeout_seconds' => 75,
+        // Keep this below the cPanel PHP max_execution_time. 45 seconds is a safe default.
+        'timeout_seconds' => 45,
         'max_output_tokens' => 1600,
         'temperature' => 0.85,
         'mock_mode' => true,
