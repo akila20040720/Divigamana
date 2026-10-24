@@ -19,7 +19,7 @@
  const open=dialog=>dialog.showModal();document.querySelectorAll('[data-close]').forEach(button=>button.onclick=()=>button.closest('dialog').close());
  $('#loginBtn').onclick=()=>open($('#authModal'));
  $('#sendOtp').onclick=async()=>{if(!$('#consent').checked)return toast(text('consent'));const data=await api('/api.php?action=auth',{mobile:$('#mobile').value,consent:true,locale});if(!data.ok)return toast(data.error);$('#authStep1').hidden=true;$('#authStep2').hidden=false;$('#otpNote').textContent=data.message};
- $('#verifyOtp').onclick=async()=>{const data=await api('/api.php?action=verify',{otp:$('#otp').value,locale});if(!data.ok)return toast(data.error);$('#authModal').close();toast('✓');resume()};
+ $('#verifyOtp').onclick=async()=>{const data=await api('/api.php?action=verify',{otp:$('#otp').value,locale});if(!data.ok)return toast(data.error);$('#authModal').close();toast(data.notice||'✓');resume()};
  async function user(){return api('/api.php?action=status')}
  document.querySelectorAll('.choose-service').forEach(button=>button.onclick=async()=>{state.service=DIVI.services.find(service=>service.slug===button.dataset.service);state.paid=button.dataset.paid==='1';const account=await user();if(!account.authenticated){open($('#authModal'));return}showService()});
  function resume(){if(state.service)showService()}

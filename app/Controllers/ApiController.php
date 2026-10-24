@@ -20,6 +20,11 @@ final class ApiController {
         $_SESSION['rate'][$key]=$now;
         return true;
     }
+    private static function development(): bool { return (APP_CONFIG['app_env']??'production')==='development'; }
+    private static function cleanAnswer(string $value): string {
+        $value=strip_tags($value);
+        return function_exists('mb_substr') ? mb_substr($value,0,2500) : substr($value,0,2500);
+    }
     private static function databaseFailure(\Throwable $error): void {
         error_log('Divigamana database error: '.$error->getMessage());
         Http::json(['ok'=>false,'error'=>'Database connection failed. In cPanel, confirm the MySQL user is added to this database with ALL PRIVILEGES, then check the database name, username, and password in config/local.php.'],500);
@@ -28,7 +33,7 @@ final class ApiController {
     public static function auth(): void {
         $input=Http::input();
         Http::requirePostCsrf($input);
-        if ((APP_CONFIG['app_env']??'production')!=='development') Http::json(['ok'=>false,'error'=>'Demo OTP is disabled. Configure a production SMS provider.'],503);
+        if (!self::development()) Http::json(['ok'=>false,'error'=>'Demo OTP is disabled. Configure a production SMS provider.'],503);
         $mobile=self::mobile((string)($input['mobile']??''));
         if (!$mobile) Http::json(['ok'=>false,'error'=>'Enter a valid Sri Lankan mobile number.'],422);
         if (empty($input['consent'])) Http::json(['ok'=>false,'error'=>'Subscription consent is required.'],422);
@@ -41,7 +46,7 @@ final class ApiController {
     public static function verify(): void {
         $input=Http::input();
         Http::requirePostCsrf($input);
-        if ((APP_CONFIG['app_env']??'production')!=='development') Http::json(['ok'=>false,'error'=>'Demo OTP is disabled. Configure a production SMS provider.'],503);
+        if (!self::development()) Http::json(['ok'=>false,'error'=>'Demo OTP is disabled. Configure a production SMS provider.'],503);
         $code=(string)($input['otp']??'');
         $mobile=$_SESSION['otp_mobile']??null;
         if (!preg_match('/^\d{6}$/',$code)||!$mobile||empty($_SESSION['otp_consent'])||time()>($_SESSION['otp_demo_expires']??0)) Http::json(['ok'=>false,'error'=>'Enter a valid six-digit demo code.'],422);
@@ -67,12 +72,19 @@ final class ApiController {
             Http::json(['ok'=>true,'user'=>Session::user(),'simulated'=>true]);
         } catch (\Throwable $error) {
             if ($pdo&&$pdo->inTransaction()) $pdo->rollBack();
+            if (self::development()) {
+                Session::login(['id'=>0,'mobile_e164'=>$mobile,'role'=>'user']);
+                $_SESSION['offline_demo']=true;
+                unset($_SESSION['otp_mobile'],$_SESSION['otp_consent']);
+                Http::json(['ok'=>true,'user'=>Session::user(),'simulated'=>true,'database_simulated'=>true,'notice'=>'Database is unavailable, so this is a temporary demo session. No mobile number or reading was saved.']);
+            }
             self::databaseFailure($error);
         }
     }
     public static function status(): void {
         $user=Session::user();
         if (!$user) Http::json(['ok'=>true,'authenticated'=>false]);
+        if (!empty($_SESSION['offline_demo'])) Http::json(['ok'=>true,'authenticated'=>true,'user'=>$user,'subscribed'=>true,'subscription'=>['status'=>'active','is_simulated'=>1,'ends_at'=>date('Y-m-d H:i:s',time()+86400),'temporary'=>true]]);
         try {
             $statement=Database::pdo()->prepare("SELECT status,is_simulated,ends_at FROM user_subscriptions WHERE user_id=? ORDER BY id DESC LIMIT 1");
             $statement->execute([$user['id']]);
@@ -91,10 +103,19 @@ final class ApiController {
         foreach ($service['fields'] as $field) {
             $value=trim((string)($answers[$field['name']]??''));
             if ($field['required']&&$value==='') Http::json(['ok'=>false,'error'=>'Please complete: '.str_replace('_',' ',$field['name'])],422);
-            $answers[$field['name']]=mb_substr(strip_tags($value),0,2500);
+            $answers[$field['name']]=self::cleanAnswer($value);
         }
         $idempotency=(string)($input['idempotency_key']??'');
         if (!preg_match('/^[a-zA-Z0-9-]{16,100}$/',$idempotency)) Http::json(['ok'=>false,'error'=>'Invalid request identifier.'],422);
+        if (!empty($_SESSION['offline_demo'])) {
+            try {
+                $result=(new QwenProvider)->generate($service,$answers,$input['locale']??'si-LK');
+                Http::json(['ok'=>true,'result'=>$result['result'],'simulated_charge'=>$service['paid'],'temporary'=>true]);
+            } catch (\Throwable $error) {
+                error_log('Divigamana temporary reading error: '.$error->getMessage());
+                Http::json(['ok'=>false,'error'=>'Qwen could not generate this reading. Check the Qwen key, model, API host, and server cURL extension.'],503);
+            }
+        }
         $pdo=null;
         try {
             $pdo=Database::pdo();
