@@ -2,7 +2,7 @@
 // Copy this to config/local.php. Keep the real copy outside public_html where the host permits it.
 // Qwen keys are region-specific. Replace {WORKSPACE_ID} with your Model Studio workspace ID.
 return [
-    'app_env' => 'production',
+    'app_env' => 'development',
     // Temporary template setting: any six-digit OTP is accepted until SMS is connected.
     'demo_otp_enabled' => true,
     'app_url' => 'https://divigamana.lk',

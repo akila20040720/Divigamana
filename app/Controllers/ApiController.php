@@ -161,8 +161,12 @@ final class ApiController {
         } catch (\Throwable $error) {
             if ($pdo&&$pdo->inTransaction()) $pdo->rollBack();
             if (isset($requestId)) $pdo->prepare("UPDATE horoscope_requests SET status='failed' WHERE id=?")->execute([$requestId]);
-            error_log('Divigamana reading error: '.$error->getMessage());
-            Http::json(['ok'=>false,'error'=>'We could not generate this reading just now. Please try again.'],503);
+            error_log('Divigamana reading error: '.$error->getMessage().' in '.$error->getFile().':'.$error->getLine());
+            $errorMessage='We could not generate this reading just now. Please try again.';
+            if ((APP_CONFIG['app_env']??'production')==='development') {
+                $errorMessage.=' Debug: '.$error->getMessage();
+            }
+            Http::json(['ok'=>false,'error'=>$errorMessage],503);
         }
     }
 }

@@ -123,57 +123,63 @@ final class QwenProvider {
         $title=trim($result['title']??'');
         $disclaimer=trim($result['disclaimer']??'');
         $guidance=trim($result['guidance']??'');
-        switch ($slug) {
-            case 'baby-names':
-                $names=[];
-                foreach (array_slice($result['names']??[],0,15) as $n) {
-                    if (is_array($n)&&is_string($n['name']??null)&&$n['name']!=='') {
-                        $names[]=['name'=>trim($n['name']),'meaning'=>trim($n['meaning']??''),'pronunciation'=>trim($n['pronunciation']??'')];
+        try {
+            switch ($slug) {
+                case 'baby-names':
+                    $names=[];
+                    foreach (array_slice($result['names']??[],0,15) as $n) {
+                        if (is_array($n)&&is_string($n['name']??null)&&$n['name']!=='') {
+                            $names[]=['name'=>trim($n['name']),'meaning'=>trim($n['meaning']??''),'pronunciation'=>trim($n['pronunciation']??'')];
+                        }
                     }
-                }
-                if (!$names) throw new \RuntimeException('AI returned no names.');
-                return ['title'=>$title,'disclaimer'=>$disclaimer,'names'=>$names,'guidance'=>$guidance];
-            case 'porondam':
-                $sections=[];
-                foreach (array_slice($result['sections']??[],0,5) as $section) {
-                    if (is_array($section)&&is_string($section['heading']??null)&&is_string($section['body']??null)) {
-                        $sections[]=['heading'=>trim($section['heading']),'body'=>trim($section['body'])];
+                    if (!$names) throw new \RuntimeException('AI returned no names.');
+                    return ['title'=>$title,'disclaimer'=>$disclaimer,'names'=>$names,'guidance'=>$guidance];
+                case 'porondam':
+                    $sections=[];
+                    foreach (array_slice($result['sections']??[],0,5) as $section) {
+                        if (is_array($section)&&is_string($section['heading']??null)&&is_string($section['body']??null)) {
+                            $sections[]=['heading'=>trim($section['heading']),'body'=>trim($section['body'])];
+                        }
                     }
-                }
-                if (!$sections) throw new \RuntimeException('AI returned no readable sections.');
-                return ['title'=>$title,'disclaimer'=>$disclaimer,'sections'=>$sections,'compatibility_summary'=>trim($result['compatibility_summary']??''),'guidance'=>$guidance];
-            case 'daily':
-                return ['title'=>$title,'disclaimer'=>$disclaimer,'intention'=>trim($result['intention']??''),'reflection'=>trim($result['reflection']??''),'caution'=>trim($result['caution']??''),'guidance'=>$guidance];
-            case 'monthly':
-                $periods=['early_month','mid_month','late_month'];
-                $formatted=[];
-                foreach ($periods as $period) {
-                    $p=$result[$period]??[];
-                    if (is_array($p)&&is_string($p['heading']??null)) {
-                        $formatted[$period]=['heading'=>trim($p['heading']),'body'=>trim($p['body']??'')];
+                    if (!$sections) throw new \RuntimeException('AI returned no readable sections.');
+                    return ['title'=>$title,'disclaimer'=>$disclaimer,'sections'=>$sections,'compatibility_summary'=>trim($result['compatibility_summary']??''),'guidance'=>$guidance];
+                case 'daily':
+                    if (empty($result['intention'])&&empty($result['reflection'])&&empty($result['caution'])) throw new \RuntimeException('AI returned no daily fields.');
+                    return ['title'=>$title,'disclaimer'=>$disclaimer,'intention'=>trim($result['intention']??''),'reflection'=>trim($result['reflection']??''),'caution'=>trim($result['caution']??''),'guidance'=>$guidance];
+                case 'monthly':
+                    $periods=['early_month','mid_month','late_month'];
+                    $formatted=[];
+                    foreach ($periods as $period) {
+                        $p=$result[$period]??[];
+                        if (is_array($p)&&is_string($p['heading']??null)) {
+                            $formatted[$period]=['heading'=>trim($p['heading']),'body'=>trim($p['body']??'')];
+                        }
                     }
-                }
-                if (!$formatted) throw new \RuntimeException('AI returned no monthly periods.');
-                return ['title'=>$title,'disclaimer'=>$disclaimer,'early_month'=>$formatted['early_month']??['heading'=>'','body'=>''],'mid_month'=>$formatted['mid_month']??['heading'=>'','body'=>''],'late_month'=>$formatted['late_month']??['heading'=>'','body'=>''],'guidance'=>$guidance];
-            case 'yearly':
-                $quarters=[];
-                foreach (array_slice($result['quarters']??[],0,4) as $q) {
-                    if (is_array($q)&&is_string($q['label']??null)) {
-                        $quarters[]=['label'=>trim($q['label']),'body'=>trim($q['body']??'')];
+                    if (!$formatted) throw new \RuntimeException('AI returned no monthly periods.');
+                    return ['title'=>$title,'disclaimer'=>$disclaimer,'early_month'=>$formatted['early_month']??['heading'=>'','body'=>''],'mid_month'=>$formatted['mid_month']??['heading'=>'','body'=>''],'late_month'=>$formatted['late_month']??['heading'=>'','body'=>''],'guidance'=>$guidance];
+                case 'yearly':
+                    $quarters=[];
+                    foreach (array_slice($result['quarters']??[],0,4) as $q) {
+                        if (is_array($q)&&is_string($q['label']??null)) {
+                            $quarters[]=['label'=>trim($q['label']),'body'=>trim($q['body']??'')];
+                        }
                     }
-                }
-                if (!$quarters) throw new \RuntimeException('AI returned no quarterly reflections.');
-                return ['title'=>$title,'disclaimer'=>$disclaimer,'year_theme'=>trim($result['year_theme']??''),'quarters'=>$quarters,'guidance'=>$guidance];
-            default:
-                $sections=[];
-                foreach (array_slice($result['sections']??[],0,5) as $section) {
-                    if (is_array($section)&&is_string($section['heading']??null)&&is_string($section['body']??null)) {
-                        $sections[]=['heading'=>trim($section['heading']),'body'=>trim($section['body'])];
-                    }
-                }
-                if (!$sections) throw new \RuntimeException('AI returned no readable sections.');
-                return ['title'=>$title,'disclaimer'=>$disclaimer,'sections'=>$sections,'guidance'=>$guidance];
+                    if (!$quarters) throw new \RuntimeException('AI returned no quarterly reflections.');
+                    return ['title'=>$title,'disclaimer'=>$disclaimer,'year_theme'=>trim($result['year_theme']??''),'quarters'=>$quarters,'guidance'=>$guidance];
+            }
+        } catch (\RuntimeException $e) {
+            // If service-specific format fails, fall back to generic format
+            error_log('Divigamana: Service-specific format failed for '.$slug.', falling back to generic: '.$e->getMessage());
         }
+        // Generic fallback for all services
+        $sections=[];
+        foreach (array_slice($result['sections']??[],0,5) as $section) {
+            if (is_array($section)&&is_string($section['heading']??null)&&is_string($section['body']??null)) {
+                $sections[]=['heading'=>trim($section['heading']),'body'=>trim($section['body'])];
+            }
+        }
+        if (!$sections) throw new \RuntimeException('AI returned no readable sections.');
+        return ['title'=>$title,'disclaimer'=>$disclaimer,'sections'=>$sections,'guidance'=>$guidance];
     }
     private function providerError($raw): string {
         $decoded=is_string($raw)?json_decode($raw,true):null;
