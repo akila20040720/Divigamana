@@ -9,7 +9,7 @@ $configPath = ROOT_PATH . '/config/local.php';
 $config = file_exists($configPath) ? require $configPath : require ROOT_PATH . '/config/config.example.php';
 define('APP_CONFIG', $config);
 spl_autoload_register(function (string $class): void {
-    if (str_starts_with($class, 'Divigamana\\')) {
+    if (substr($class, 0, 11) === 'Divigamana\\') {
         $file = ROOT_PATH . '/app/' . str_replace(['Divigamana\\', '\\'], ['', '/'], $class) . '.php';
         if (is_file($file)) require $file;
     }

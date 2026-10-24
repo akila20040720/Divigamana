@@ -2,7 +2,7 @@
 namespace Divigamana\Controllers;
 use Divigamana\Support\{Database,Http,Session}; use Divigamana\Services\{ServiceCatalog,RahuKalaya,QwenProvider};
 final class ApiController {
- private static function mobile(string $v): ?string { $n=preg_replace('/\D/','',$v);if(str_starts_with($n,'0'))$n='94'.substr($n,1);if(str_starts_with($n,'94')&&strlen($n)===11)return '+'.$n;return null; }
+ private static function mobile(string $v): ?string { $n=preg_replace('/\D/','',$v);if(substr($n,0,1)==='0')$n='94'.substr($n,1);if(substr($n,0,2)==='94'&&strlen($n)===11)return '+'.$n;return null; }
  private static function rate(string $key,int $seconds):bool { $now=time();if(($_SESSION['rate'][$key]??0)>$now-$seconds)return false;$_SESSION['rate'][$key]=$now;return true; }
  public static function rahu():void { Http::json(['ok'=>true,'rahu'=>RahuKalaya::today()]); }
  public static function auth():void { $i=Http::input();Http::requirePostCsrf($i);if((APP_CONFIG['app_env']??'production')!=='development')Http::json(['ok'=>false,'error'=>'Demo OTP is disabled. Configure a production SMS provider.'],503);$m=self::mobile((string)($i['mobile']??''));if(!$m)Http::json(['ok'=>false,'error'=>'Enter a valid Sri Lankan mobile number.'],422);if(empty($i['consent']))Http::json(['ok'=>false,'error'=>'Subscription consent is required.'],422);if(!self::rate('otp',30))Http::json(['ok'=>false,'error'=>'Please wait before requesting another code.'],429);$_SESSION['otp_mobile']=$m;$_SESSION['otp_consent']=true;$_SESSION['otp_demo_expires']=time()+600;Http::json(['ok'=>true,'message'=>'Development mode: enter any six-digit code. No SMS was sent.']); }
