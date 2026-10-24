@@ -12,13 +12,13 @@ Mobile-first multilingual Sri Lankan astrology application for PHP 8.x and MySQL
 
 ## Qwen production configuration
 
-Set `qwen.mock_mode` to `false`, then add the Alibaba Cloud Model Studio **production inference** key, authorised regional OpenAI-compatible base URL, and model ID:
+Set `qwen.mock_mode` to `false`, then add the Alibaba Cloud Model Studio **production inference** key, authorised regional OpenAI-compatible base URL, and model ID. The current recommended Singapore endpoint is workspace-specific:
 
 ```php
-'qwen' => ['api_key'=>'YOUR_SERVER_ONLY_KEY','base_url'=>'https://…/compatible-mode/v1','model'=>'YOUR_AUTHORISED_MODEL','timeout_seconds'=>45,'max_output_tokens'=>1600,'temperature'=>0.75,'mock_mode'=>false]
+'qwen' => ['api_key'=>'YOUR_SERVER_ONLY_KEY','base_url'=>'https://{WORKSPACE_ID}.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1','model'=>'qwen-plus','timeout_seconds'=>45,'max_output_tokens'=>1600,'temperature'=>0.85,'mock_mode'=>false]
 ```
 
-Never place this key in JavaScript, Git, public files, browser responses, or error logs. The application posts to `/chat/completions` from PHP cURL, records model/tokens/duration, and rejects malformed structured output.
+Never place this key in JavaScript, Git, public files, browser responses, or error logs. The application posts to `/chat/completions` from PHP cURL, records model/tokens/duration, and rejects malformed structured output. Use the endpoint and API key from the same Model Studio region/workspace.
 
 ## Current development simulation
 
@@ -33,7 +33,7 @@ Never place this key in JavaScript, Git, public files, browser responses, or err
 - [ ] Store `local.php` outside `public_html`; set correct ownership and restrictive permissions.
 - [ ] Set `app_env` to `production`, `mock_mode` to `false`, and production Qwen credentials.
 - [ ] Configure HTTPS redirect, PHP 8.1+ and secure session cookies.
-- [ ] Configure a daily optional cron to warm Rahu cache after a cache writer is added; current calculation is deterministic on each request using the Colombo configuration.
+- [ ] Configure a daily optional cron to warm Rahu cache after a cache writer is added; current calculation is deterministic on each request using the Colombo configuration. Qwen generates readings; it is not used to guess a time-sensitive Rahu Kalaya window.
 - [ ] Create a real admin user (`UPDATE users SET role='admin' WHERE mobile_e164='+94…'`) only after secure demo replacement.
 - [ ] Add privacy/deletion workflow, real SMS, billing authorization/idempotency/reconciliation and tested backups before accepting real payments.
 
