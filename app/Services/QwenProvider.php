@@ -5,6 +5,12 @@ final class QwenProvider {
     public function generate(array $service,array $answers,string $locale,array $context=[]): array {
         $started=microtime(true);
         $q=APP_CONFIG['qwen'];
+        // A full Sinhala reading can take longer than PHP's common 30-second
+        // development default. Give cURL the configured request window plus a
+        // little time to validate and persist the response. Hosts may still
+        // impose their own hard ceiling.
+        $configuredTimeout=max(10,min(75,(int)($q['timeout_seconds']??45)));
+        if (function_exists('set_time_limit')) @set_time_limit($configuredTimeout+15);
         error_log('Divigamana: Starting Qwen generation for service '.$service['slug'].' in locale '.$locale);
         error_log('Divigamana: Qwen config - base_url: '.$q['base_url'].', model: '.$q['model'].', mock_mode: '.($q['mock_mode']?'true':'false'));
         $language=$locale==='ta-LK'?'natural Sri Lankan Tamil':($locale==='en-US'?'natural English':'natural Sri Lankan Sinhala');
@@ -23,7 +29,9 @@ final class QwenProvider {
         $apiKey=trim((string)($q['api_key']??''));
         if ($apiKey==='') throw new \RuntimeException('Qwen API key is not configured.');
         // Qwen JSON mode needs an explicit JSON instruction in the messages; the system prompt above provides it.
-        $body=['model'=>$q['model'],'messages'=>[['role'=>'system','content'=>$system],['role'=>'user','content'=>$prompt]],'temperature'=>min(1.2,max(0.7,(float)$q['temperature'])),'top_p'=>0.92,'max_tokens'=>max(600,(int)$q['max_output_tokens']),'response_format'=>['type'=>'json_object']];
+        // Sinhala readings with several sections routinely exceed 1600 tokens.
+        $body=['model'=>$q['model'],'messages'=>[['role'=>'system','content'=>$system],['role'=>'user','content'=>$prompt]],'temperature'=>min(1.2,max(0.7,(float)$q['temperature'])),'top_p'=>0.92,'max_tokens'=>max(2200,(int)$q['max_output_tokens']),'response_format'=>['type'=>'json_object']];
+        if (json_encode($body)===false) throw new \RuntimeException('Could not encode the Qwen request JSON: '.json_last_error_msg());
         $base=rtrim((string)$q['base_url'],'/');
         if (substr($base,-19)!=='/compatible-mode/v1') $base.='/compatible-mode/v1';
         if (!$this->validBaseUrl($base)) throw new \RuntimeException('Qwen base_url is invalid. Use the complete Model Studio compatible-mode/v1 URL for the API key region.');
@@ -34,16 +42,17 @@ final class QwenProvider {
         $useFallback=false;
         for ($attempt=0;$attempt<2;$attempt++) {
             $timeout=$this->requestTimeout($started,(int)($q['timeout_seconds']??45));
-            // Reserve time for Singapore's shared endpoint if the dedicated host
-            // cannot return even a response header from this hosting network.
-            if ($attempt===0&&$fallback!=='') $timeout=min($timeout,12);
             if ($timeout<8) break;
             $endpoint=$useFallback?$fallback:$base;
             $ch=curl_init($endpoint.'/chat/completions');
             // Do not force IPv4: cPanel hosts vary in their IPv4/IPv6 routing.
             curl_setopt_array($ch,[CURLOPT_POST=>true,CURLOPT_HTTPHEADER=>['Authorization: Bearer '.$apiKey,'Content-Type: application/json'],CURLOPT_POSTFIELDS=>json_encode($body),CURLOPT_RETURNTRANSFER=>true,CURLOPT_CONNECTTIMEOUT=>min(10,$timeout),CURLOPT_TIMEOUT=>$timeout]);
-            $raw=curl_exec($ch); $status=(int)curl_getinfo($ch,CURLINFO_HTTP_CODE); $error=curl_error($ch); curl_close($ch);
-            error_log('Divigamana: Qwen attempt '.($attempt+1).' via '.($useFallback?'shared fallback':'configured endpoint').' - HTTP status: '.$status.', cURL error: '.$error.', response length: '.(is_string($raw)?strlen($raw):'false'));
+            $raw=curl_exec($ch); $status=(int)curl_getinfo($ch,CURLINFO_HTTP_CODE); $error=curl_error($ch);
+            $timeMs=(int)round(curl_getinfo($ch,CURLINFO_TOTAL_TIME)*1000);
+            $ip=(string)curl_getinfo($ch,CURLINFO_PRIMARY_IP);
+            // curl_close is deprecated/no-op in PHP 8.5 but remains required by PHP 7.4.
+            if (PHP_VERSION_ID<80000) curl_close($ch);
+            error_log('Divigamana: Qwen attempt '.($attempt+1).' via '.($useFallback?'shared fallback':'configured endpoint').' - HTTP status: '.$status.', duration_ms: '.$timeMs.', remote_ip: '.($ip?:'unavailable').', cURL error: '.($error?:'none').', response_bytes: '.(is_string($raw)?strlen($raw):'false'));
             if ($raw!==false&&$status>=200&&$status<=299) break;
             if ($attempt===0&&$raw===false&&$status===0&&$fallback!==''&&$this->requestTimeout($started,(int)($q['timeout_seconds']??45))>=8) { $useFallback=true; usleep(300000); continue; }
             if ($attempt===0&&($raw===false||$status===429||$status>=500)&&$this->requestTimeout($started,(int)($q['timeout_seconds']??45))>=12) usleep(300000);
@@ -59,10 +68,18 @@ final class QwenProvider {
             throw new \RuntimeException('AI request unavailable (HTTP '.$status.')'.($providerMessage?': '.$providerMessage:($error?': '.$error:'')).$errorDetail);
         }
         $decoded=json_decode($raw,true);
-        if (!is_array($decoded)) throw new \RuntimeException('AI service returned invalid HTTP JSON.');
+        if (!is_array($decoded)) throw new \RuntimeException('AI service returned invalid HTTP JSON: '.json_last_error_msg());
+        $finishReason=(string)($decoded['choices'][0]['finish_reason']??'unknown');
+        if ($finishReason!=='stop') error_log('Divigamana: Qwen completion finish_reason: '.$finishReason.'.');
+        if ($finishReason==='length') throw new \RuntimeException('AI response was truncated by the output-token limit. Increase qwen.max_output_tokens.');
         $content=$this->contentFromResponse($decoded);
         $result=$this->decodeResult($content);
-        if (!is_array($result)||!is_string($result['title']??null)||!is_string($result['disclaimer']??null)) throw new \RuntimeException('AI returned an invalid structured response.');
+        if (!is_array($result)||!is_string($result['title']??null)||!is_string($result['disclaimer']??null)) {
+            $shape=is_array($result)?implode(',',array_keys($result)):'not valid JSON: '.json_last_error_msg();
+            error_log('Divigamana: Qwen returned an unexpected JSON shape (content_bytes: '.strlen($content).', content_sha256: '.hash('sha256',$content).', details: '.$shape.').');
+            throw new \RuntimeException('AI returned an invalid structured response.');
+        }
+        error_log('Divigamana: Qwen structured response accepted (keys: '.implode(',',array_keys($result)).', content_bytes: '.strlen($content).').');
         $slug=(string)($service['slug']??'');
         $result=$this->normaliseResult($result,$slug);
         return ['result'=>$result,'model'=>$q['model'],'tokens'=>(int)($decoded['usage']['total_tokens']??0),'duration_ms'=>(int)((microtime(true)-$started)*1000)];
@@ -134,8 +151,28 @@ final class QwenProvider {
         $content=trim($content);
         if (substr($content,0,7)==='```json') $content=substr($content,7);
         if (substr($content,-3)==='```') $content=substr($content,0,-3);
-        $decoded=json_decode(trim($content),true);
+        $content=trim($content);
+        $decoded=json_decode($content,true);
+        // Qwen can emit literal tabs/newlines in a JSON string. Replacing raw
+        // control bytes with spaces preserves readable text and valid JSON.
+        if (!is_array($decoded)) {
+            $sanitised=preg_replace('/[\x00-\x1F]/',' ',$content);
+            $decoded=json_decode($sanitised,true);
+        }
+        if (!is_array($decoded)) $decoded=json_decode($this->escapeJsonControls($content),true);
         return is_array($decoded)?$decoded:null;
+    }
+    private function escapeJsonControls(string $json): string {
+        $out=''; $inString=false; $escaped=false; $length=strlen($json);
+        for ($i=0;$i<$length;$i++) {
+            $char=$json[$i]; $code=ord($char);
+            if ($inString&&$code<32&&!$escaped) { $out.=sprintf('\\u%04x',$code); continue; }
+            $out.=$char;
+            if ($inString&&$escaped) { $escaped=false; continue; }
+            if ($inString&&$char==='\\') { $escaped=true; continue; }
+            if ($char==='"') $inString=!$inString;
+        }
+        return $out;
     }
     private function normaliseResult(array $result,string $slug=''): array {
         $title=trim($result['title']??'');
@@ -219,9 +256,6 @@ final class QwenProvider {
     }
     private function fallbackBaseUrl(string $primary,array $q): string {
         $fallback=trim((string)($q['fallback_base_url']??''));
-        // The shared Singapore endpoint accepts API keys created in the same
-        // region, and is used only after a zero-byte network timeout.
-        if ($fallback===''&&strpos($primary,'.ap-southeast-1.maas.aliyuncs.com')!==false) $fallback='https://dashscope-intl.aliyuncs.com/compatible-mode/v1';
         $fallback=rtrim($fallback,'/');
         if ($fallback!==''&&substr($fallback,-19)!=='/compatible-mode/v1') $fallback.='/compatible-mode/v1';
         return $fallback!==$primary&&$this->validBaseUrl($fallback)?$fallback:'';

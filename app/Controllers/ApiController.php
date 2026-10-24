@@ -129,7 +129,9 @@ final class ApiController {
                 Http::json(['ok'=>true,'result'=>$result['result'],'simulated_charge'=>$service['paid'],'temporary'=>true]);
             } catch (\Throwable $error) {
                 error_log('Divigamana temporary reading error: '.$error->getMessage());
-                Http::json(['ok'=>false,'error'=>'Qwen could not generate this reading. Check the Qwen key, model, API host, and server cURL extension.'],503);
+                $message='Qwen could not generate this reading. Check the Qwen key, model, API host, and server cURL extension.';
+                if (self::development()) $message.=' Debug: '.$error->getMessage();
+                Http::json(['ok'=>false,'error'=>$message],503);
             }
         }
         $pdo=null;

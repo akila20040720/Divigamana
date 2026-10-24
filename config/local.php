@@ -11,9 +11,12 @@ return [
     'qwen' => [
         'api_key' => 'sk-ws-H.DIHRHRX.5Qy0.MEUCIQCYN39g1--N0eKUz9LhSN6ePmuu7yEX4vX9L5fc0ZtEmAIgLupbHtf2BdFw_ocZc7-x4unUJX0a2VbY2fZeVTZX3G4',
         'base_url' => 'https://ws-7g2uwrhmspz0kmxb.ap-southeast-1.maas.aliyuncs.com/',
+        // The workspace endpoint is the authoritative endpoint for this key.
+        // Do not spend the remaining PHP execution time on a second host.
+        'fallback_base_url' => '',
         'model' => 'qwen-plus',
-        'timeout_seconds' => 45,
-        'max_output_tokens' => 1600,
+        'timeout_seconds' => 75,
+        'max_output_tokens' => 4000,
         'temperature' => 0.85,
         'mock_mode' => false,
     ],
