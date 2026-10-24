@@ -134,7 +134,9 @@ final class ApiController {
         }
         $pdo=null;
         try {
+            error_log('Divigamana: Attempting database connection');
             $pdo=Database::pdo();
+            error_log('Divigamana: Database connection successful');
             $subscription=$pdo->prepare("SELECT id FROM user_subscriptions WHERE user_id=? AND status='active' AND ends_at>NOW() LIMIT 1");
             $subscription->execute([$user['id']]);
             if (!$subscription->fetch()) Http::json(['ok'=>false,'error'=>'An active subscription is required.'],403);
@@ -162,6 +164,7 @@ final class ApiController {
             if ($pdo&&$pdo->inTransaction()) $pdo->rollBack();
             if (isset($requestId)) $pdo->prepare("UPDATE horoscope_requests SET status='failed' WHERE id=?")->execute([$requestId]);
             error_log('Divigamana reading error: '.$error->getMessage().' in '.$error->getFile().':'.$error->getLine());
+            error_log('Divigamana error trace: '.$error->getTraceAsString());
             $errorMessage='We could not generate this reading just now. Please try again.';
             if ((APP_CONFIG['app_env']??'production')==='development') {
                 $errorMessage.=' Debug: '.$error->getMessage();

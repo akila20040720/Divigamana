@@ -5,6 +5,8 @@ final class QwenProvider {
     public function generate(array $service,array $answers,string $locale,array $context=[]): array {
         $started=microtime(true);
         $q=APP_CONFIG['qwen'];
+        error_log('Divigamana: Starting Qwen generation for service '.$service['slug'].' in locale '.$locale);
+        error_log('Divigamana: Qwen config - base_url: '.$q['base_url'].', model: '.$q['model'].', mock_mode: '.($q['mock_mode']?'true':'false'));
         $language=$locale==='ta-LK'?'natural Sri Lankan Tamil':($locale==='en-US'?'natural English':'natural Sri Lankan Sinhala');
         $reference=(string)($context['reading_reference']??bin2hex(random_bytes(12)));
         $angles=['practical next steps','inner strengths and patterns','relationships and communication','timing and preparation','a fresh symbolic perspective'];
@@ -25,6 +27,7 @@ final class QwenProvider {
         $base=rtrim((string)$q['base_url'],'/');
         if (substr($base,-19)!=='/compatible-mode/v1') $base.='/compatible-mode/v1';
         if (!$this->validBaseUrl($base)) throw new \RuntimeException('Qwen base_url is invalid. Use the complete Model Studio compatible-mode/v1 URL for the API key region.');
+        error_log('Divigamana: Final Qwen URL: '.$base.'/chat/completions');
         $raw=false; $status=0; $error='';
         for ($attempt=0;$attempt<2;$attempt++) {
             $timeout=$this->requestTimeout($started,(int)($q['timeout_seconds']??45));
@@ -32,13 +35,19 @@ final class QwenProvider {
             $ch=curl_init($base.'/chat/completions');
             curl_setopt_array($ch,[CURLOPT_POST=>true,CURLOPT_HTTPHEADER=>['Authorization: Bearer '.$apiKey,'Content-Type: application/json'],CURLOPT_POSTFIELDS=>json_encode($body),CURLOPT_RETURNTRANSFER=>true,CURLOPT_CONNECTTIMEOUT=>min(12,$timeout),CURLOPT_TIMEOUT=>$timeout,CURLOPT_IPRESOLVE=>CURL_IPRESOLVE_V4]);
             $raw=curl_exec($ch); $status=(int)curl_getinfo($ch,CURLINFO_HTTP_CODE); $error=curl_error($ch); curl_close($ch);
+            error_log('Divigamana: Qwen attempt '.($attempt+1).' - HTTP status: '.$status.', cURL error: '.$error.', response length: '.(is_string($raw)?strlen($raw):'false'));
             if ($raw!==false&&$status>=200&&$status<=299) break;
             if ($attempt===0&&($raw===false||$status===429||$status>=500)&&$this->requestTimeout($started,(int)($q['timeout_seconds']??45))>=12) usleep(300000);
             else break;
         }
         if ($raw===false||$status<200||$status>299) {
             $providerMessage=$this->providerError($raw);
-            throw new \RuntimeException('AI request unavailable (HTTP '.$status.')'.($providerMessage?': '.$providerMessage:($error?': '.$error:'')));
+            $errorDetail='';
+            if (is_string($raw)) {
+                $errorDetail=' Response: '.substr($raw,0,500);
+                error_log('Divigamana Qwen API error (HTTP '.$status.'): '.$providerMessage.$errorDetail);
+            }
+            throw new \RuntimeException('AI request unavailable (HTTP '.$status.')'.($providerMessage?': '.$providerMessage:($error?': '.$error:'')).$errorDetail);
         }
         $decoded=json_decode($raw,true);
         if (!is_array($decoded)) throw new \RuntimeException('AI service returned invalid HTTP JSON.');
