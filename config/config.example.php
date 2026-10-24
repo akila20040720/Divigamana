@@ -10,6 +10,8 @@ return [
     'qwen' => [
         'api_key' => '',
         'base_url' => 'https://{WORKSPACE_ID}.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1',
+        // Used automatically only if the workspace endpoint has a zero-byte network timeout.
+        'fallback_base_url' => 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1',
         'model' => 'qwen-plus',
         // Keep this below the cPanel PHP max_execution_time. 45 seconds is a safe default.
         'timeout_seconds' => 45,

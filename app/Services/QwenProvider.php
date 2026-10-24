@@ -28,15 +28,24 @@ final class QwenProvider {
         if (substr($base,-19)!=='/compatible-mode/v1') $base.='/compatible-mode/v1';
         if (!$this->validBaseUrl($base)) throw new \RuntimeException('Qwen base_url is invalid. Use the complete Model Studio compatible-mode/v1 URL for the API key region.');
         error_log('Divigamana: Final Qwen URL: '.$base.'/chat/completions');
+        $fallback=$this->fallbackBaseUrl($base,$q);
+        if ($fallback!=='') error_log('Divigamana: Qwen network fallback URL: '.$fallback.'/chat/completions');
         $raw=false; $status=0; $error='';
+        $useFallback=false;
         for ($attempt=0;$attempt<2;$attempt++) {
             $timeout=$this->requestTimeout($started,(int)($q['timeout_seconds']??45));
+            // Reserve time for Singapore's shared endpoint if the dedicated host
+            // cannot return even a response header from this hosting network.
+            if ($attempt===0&&$fallback!=='') $timeout=min($timeout,12);
             if ($timeout<8) break;
-            $ch=curl_init($base.'/chat/completions');
-            curl_setopt_array($ch,[CURLOPT_POST=>true,CURLOPT_HTTPHEADER=>['Authorization: Bearer '.$apiKey,'Content-Type: application/json'],CURLOPT_POSTFIELDS=>json_encode($body),CURLOPT_RETURNTRANSFER=>true,CURLOPT_CONNECTTIMEOUT=>min(12,$timeout),CURLOPT_TIMEOUT=>$timeout,CURLOPT_IPRESOLVE=>CURL_IPRESOLVE_V4]);
+            $endpoint=$useFallback?$fallback:$base;
+            $ch=curl_init($endpoint.'/chat/completions');
+            // Do not force IPv4: cPanel hosts vary in their IPv4/IPv6 routing.
+            curl_setopt_array($ch,[CURLOPT_POST=>true,CURLOPT_HTTPHEADER=>['Authorization: Bearer '.$apiKey,'Content-Type: application/json'],CURLOPT_POSTFIELDS=>json_encode($body),CURLOPT_RETURNTRANSFER=>true,CURLOPT_CONNECTTIMEOUT=>min(10,$timeout),CURLOPT_TIMEOUT=>$timeout]);
             $raw=curl_exec($ch); $status=(int)curl_getinfo($ch,CURLINFO_HTTP_CODE); $error=curl_error($ch); curl_close($ch);
-            error_log('Divigamana: Qwen attempt '.($attempt+1).' - HTTP status: '.$status.', cURL error: '.$error.', response length: '.(is_string($raw)?strlen($raw):'false'));
+            error_log('Divigamana: Qwen attempt '.($attempt+1).' via '.($useFallback?'shared fallback':'configured endpoint').' - HTTP status: '.$status.', cURL error: '.$error.', response length: '.(is_string($raw)?strlen($raw):'false'));
             if ($raw!==false&&$status>=200&&$status<=299) break;
+            if ($attempt===0&&$raw===false&&$status===0&&$fallback!==''&&$this->requestTimeout($started,(int)($q['timeout_seconds']??45))>=8) { $useFallback=true; usleep(300000); continue; }
             if ($attempt===0&&($raw===false||$status===429||$status>=500)&&$this->requestTimeout($started,(int)($q['timeout_seconds']??45))>=12) usleep(300000);
             else break;
         }
@@ -207,6 +216,15 @@ final class QwenProvider {
         // Leave room for response persistence and error handling before cPanel terminates PHP.
         $remaining=$limit-(int)(microtime(true)-$started)-4;
         return max(0,min($configured,$remaining));
+    }
+    private function fallbackBaseUrl(string $primary,array $q): string {
+        $fallback=trim((string)($q['fallback_base_url']??''));
+        // The shared Singapore endpoint accepts API keys created in the same
+        // region, and is used only after a zero-byte network timeout.
+        if ($fallback===''&&strpos($primary,'.ap-southeast-1.maas.aliyuncs.com')!==false) $fallback='https://dashscope-intl.aliyuncs.com/compatible-mode/v1';
+        $fallback=rtrim($fallback,'/');
+        if ($fallback!==''&&substr($fallback,-19)!=='/compatible-mode/v1') $fallback.='/compatible-mode/v1';
+        return $fallback!==$primary&&$this->validBaseUrl($fallback)?$fallback:'';
     }
     private function mock(array $service,array $answers,string $locale,string $reference,string $angle): array {
         $name=$answers['full_name']??$answers['name']??$answers['preferred_name']??'';
