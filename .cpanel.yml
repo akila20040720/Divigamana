@@ -1,0 +1,6 @@
+
+---
+deployment:
+  tasks:
+    - export DEPLOYPATH=/home/rakiyacl/divigamana.lk/
+    - /bin/cp index.html "$DEPLOYPATH"
