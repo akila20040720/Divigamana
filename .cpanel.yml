@@ -2,16 +2,12 @@
 ---
 # cPanel Git Version Control deployment configuration.
 # DEPLOYPATH must be this domain's document root in your cPanel account.
-# Do not commit config/local.php: create it manually on the server with
-# production database and Qwen credentials after the first deployment.
+# Static template deployment — no PHP, database, OTP, or payment files are published.
 deployment:
   tasks:
     - export DEPLOYPATH=/home/rakiyacl/divigamana.lk
-    - /bin/mkdir -p "$DEPLOYPATH/public" "$DEPLOYPATH/config"
-    - /bin/cp index.php api.php robots.txt sitemap.xml "$DEPLOYPATH/"
+    - /bin/mkdir -p "$DEPLOYPATH/public"
+    - /bin/cp index.html robots.txt sitemap.xml "$DEPLOYPATH/"
     - /bin/cp .htaccess "$DEPLOYPATH/.htaccess"
-    - /bin/cp -R app "$DEPLOYPATH/"
-    - /bin/cp -R admin "$DEPLOYPATH/"
     - /bin/cp -R public/assets "$DEPLOYPATH/public/"
-    - /bin/cp config/config.example.php "$DEPLOYPATH/config/"
-    - /bin/rm -f "$DEPLOYPATH/index.html"
+    - /bin/rm -f "$DEPLOYPATH/index.php" "$DEPLOYPATH/api.php"
