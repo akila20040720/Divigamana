@@ -1,0 +1,3 @@
+User-agent: *
+Allow: /
+Sitemap: https://divigamana.lk/sitemap.xml
