@@ -3,6 +3,8 @@
 // Qwen keys are region-specific. Replace {WORKSPACE_ID} with your Model Studio workspace ID.
 return [
     'app_env' => 'development',
+    // Temporary only: permits any six-digit OTP. Set false once a real SMS provider is enabled.
+    'demo_otp_enabled' => true,
     'app_url' => 'https://divigamana.lk',
     'db' => ['host'=>'localhost','name'=>'divigamana','user'=>'db_user','pass'=>'change-me'],
     'qwen' => [

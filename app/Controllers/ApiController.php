@@ -21,6 +21,7 @@ final class ApiController {
         return true;
     }
     private static function development(): bool { return (APP_CONFIG['app_env']??'production')==='development'; }
+    private static function demoOtpEnabled(): bool { return self::development()||!empty(APP_CONFIG['demo_otp_enabled']); }
     private static function cleanAnswer(string $value): string {
         $value=strip_tags($value);
         return function_exists('mb_substr') ? mb_substr($value,0,2500) : substr($value,0,2500);
@@ -33,7 +34,7 @@ final class ApiController {
     public static function auth(): void {
         $input=Http::input();
         Http::requirePostCsrf($input);
-        if (!self::development()) Http::json(['ok'=>false,'error'=>'Demo OTP is disabled. Configure a production SMS provider.'],503);
+        if (!self::demoOtpEnabled()) Http::json(['ok'=>false,'error'=>'OTP verification is not configured.'],503);
         $mobile=self::mobile((string)($input['mobile']??''));
         if (!$mobile) Http::json(['ok'=>false,'error'=>'Enter a valid Sri Lankan mobile number.'],422);
         if (empty($input['consent'])) Http::json(['ok'=>false,'error'=>'Subscription consent is required.'],422);
@@ -46,7 +47,7 @@ final class ApiController {
     public static function verify(): void {
         $input=Http::input();
         Http::requirePostCsrf($input);
-        if (!self::development()) Http::json(['ok'=>false,'error'=>'Demo OTP is disabled. Configure a production SMS provider.'],503);
+        if (!self::demoOtpEnabled()) Http::json(['ok'=>false,'error'=>'OTP verification is not configured.'],503);
         $code=(string)($input['otp']??'');
         $mobile=$_SESSION['otp_mobile']??null;
         if (!preg_match('/^\d{6}$/',$code)||!$mobile||empty($_SESSION['otp_consent'])||time()>($_SESSION['otp_demo_expires']??0)) Http::json(['ok'=>false,'error'=>'Enter a valid six-digit demo code.'],422);
