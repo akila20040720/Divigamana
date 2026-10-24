@@ -133,36 +133,54 @@ final class ApiController {
             }
         }
         $pdo=null;
+        $skipDatabase=((APP_CONFIG['app_env']??'production')==='development');
+        
+        if (!$skipDatabase) {
+            try {
+                error_log('Divigamana: Attempting database connection');
+                $pdo=Database::pdo();
+                error_log('Divigamana: Database connection successful');
+                $subscription=$pdo->prepare("SELECT id FROM user_subscriptions WHERE user_id=? AND status='active' AND ends_at>NOW() LIMIT 1");
+                $subscription->execute([$user['id']]);
+                if (!$subscription->fetch()) Http::json(['ok'=>false,'error'=>'An active subscription is required.'],403);
+                $existing=$pdo->prepare('SELECT r.result_json FROM horoscope_requests q JOIN horoscope_results r ON r.request_id=q.id WHERE q.user_id=? AND q.idempotency_key=?');
+                $existing->execute([$user['id'],$idempotency]);
+                if ($row=$existing->fetch()) Http::json(['ok'=>true,'result'=>json_decode($row['result_json'],true),'cached'=>true]);
+                $context=self::readingContext($pdo,(int)$user['id'],(int)$service['id']);
+                $pdo->beginTransaction();
+                $pdo->prepare("INSERT INTO horoscope_requests (user_id,service_id,status,locale,questionnaire_json,idempotency_key) VALUES (?,?, 'processing',?,?,?)")->execute([$user['id'],$service['id'],$input['locale']??'si-LK',json_encode($answers,JSON_UNESCAPED_UNICODE),$idempotency]);
+                $requestId=(int)$pdo->lastInsertId();
+                if ($service['paid']) $pdo->prepare("INSERT INTO payment_transactions (user_id,request_id,amount,currency,status,is_simulated,description) VALUES (?,?,20,'LKR','simulated_confirmed',1,'Simulated per-reading charge')")->execute([$user['id'],$requestId]);
+                $pdo->commit();
+                $context['reading_reference']='request-'.$requestId.'-'.bin2hex(random_bytes(8));
+            } catch (\Throwable $error) {
+                if ($pdo&&$pdo->inTransaction()) $pdo->rollBack();
+                self::databaseFailure($error);
+            }
+        } else {
+            error_log('Divigamana: Skipping database in development mode');
+            $context=[];
+            $requestId=null;
+        }
+        
         try {
-            error_log('Divigamana: Attempting database connection');
-            $pdo=Database::pdo();
-            error_log('Divigamana: Database connection successful');
-            $subscription=$pdo->prepare("SELECT id FROM user_subscriptions WHERE user_id=? AND status='active' AND ends_at>NOW() LIMIT 1");
-            $subscription->execute([$user['id']]);
-            if (!$subscription->fetch()) Http::json(['ok'=>false,'error'=>'An active subscription is required.'],403);
-            $existing=$pdo->prepare('SELECT r.result_json FROM horoscope_requests q JOIN horoscope_results r ON r.request_id=q.id WHERE q.user_id=? AND q.idempotency_key=?');
-            $existing->execute([$user['id'],$idempotency]);
-            if ($row=$existing->fetch()) Http::json(['ok'=>true,'result'=>json_decode($row['result_json'],true),'cached'=>true]);
-            $context=self::readingContext($pdo,(int)$user['id'],(int)$service['id']);
-            $pdo->beginTransaction();
-            $pdo->prepare("INSERT INTO horoscope_requests (user_id,service_id,status,locale,questionnaire_json,idempotency_key) VALUES (?,?, 'processing',?,?,?)")->execute([$user['id'],$service['id'],$input['locale']??'si-LK',json_encode($answers,JSON_UNESCAPED_UNICODE),$idempotency]);
-            $requestId=(int)$pdo->lastInsertId();
-            if ($service['paid']) $pdo->prepare("INSERT INTO payment_transactions (user_id,request_id,amount,currency,status,is_simulated,description) VALUES (?,?,20,'LKR','simulated_confirmed',1,'Simulated per-reading charge')")->execute([$user['id'],$requestId]);
-            $pdo->commit();
-            $context['reading_reference']='request-'.$requestId.'-'.bin2hex(random_bytes(8));
             $provider=new QwenProvider();
             $result=$provider->generate($service,$answers,$input['locale']??'si-LK',$context);
-            if (in_array(hash('sha256',json_encode($result['result'],JSON_UNESCAPED_UNICODE)),$context['previous_hashes'],true)) {
-                $context['reading_reference']='retry-'.$requestId.'-'.bin2hex(random_bytes(12));
-                $result=$provider->generate($service,$answers,$input['locale']??'si-LK',$context);
+            
+            if ($pdo&&$requestId) {
+                if (in_array(hash('sha256',json_encode($result['result'],JSON_UNESCAPED_UNICODE)),$context['previous_hashes']??[],true)) {
+                    $context['reading_reference']='retry-'.$requestId.'-'.bin2hex(random_bytes(12));
+                    $result=$provider->generate($service,$answers,$input['locale']??'si-LK',$context);
+                }
+                $pdo->prepare("INSERT INTO horoscope_results (request_id,result_json,model_name) VALUES (?,?,?)")->execute([$requestId,json_encode($result['result'],JSON_UNESCAPED_UNICODE),$result['model']]);
+                $pdo->prepare("UPDATE horoscope_requests SET status='completed',completed_at=NOW() WHERE id=?")->execute([$requestId]);
+                $pdo->prepare('INSERT INTO ai_usage_logs (request_id,model_name,total_tokens,duration_ms) VALUES (?,?,?,?)')->execute([$requestId,$result['model'],$result['tokens'],$result['duration_ms']]);
             }
-            $pdo->prepare("INSERT INTO horoscope_results (request_id,result_json,model_name) VALUES (?,?,?)")->execute([$requestId,json_encode($result['result'],JSON_UNESCAPED_UNICODE),$result['model']]);
-            $pdo->prepare("UPDATE horoscope_requests SET status='completed',completed_at=NOW() WHERE id=?")->execute([$requestId]);
-            $pdo->prepare('INSERT INTO ai_usage_logs (request_id,model_name,total_tokens,duration_ms) VALUES (?,?,?,?)')->execute([$requestId,$result['model'],$result['tokens'],$result['duration_ms']]);
+            
             Http::json(['ok'=>true,'result'=>$result['result'],'request_id'=>$requestId,'simulated_charge'=>$service['paid']]);
         } catch (\Throwable $error) {
             if ($pdo&&$pdo->inTransaction()) $pdo->rollBack();
-            if (isset($requestId)) $pdo->prepare("UPDATE horoscope_requests SET status='failed' WHERE id=?")->execute([$requestId]);
+            if ($pdo&&$requestId) $pdo->prepare("UPDATE horoscope_requests SET status='failed' WHERE id=?")->execute([$requestId]);
             error_log('Divigamana reading error: '.$error->getMessage().' in '.$error->getFile().':'.$error->getLine());
             error_log('Divigamana error trace: '.$error->getTraceAsString());
             $errorMessage='We could not generate this reading just now. Please try again.';
