@@ -1,7 +1,9 @@
 <?php
 declare(strict_types=1);
 date_default_timezone_set('Asia/Colombo');
-mb_internal_encoding('UTF-8');
+if (function_exists('mb_internal_encoding')) {
+    mb_internal_encoding('UTF-8');
+}
 define('ROOT_PATH', dirname(__DIR__));
 $configPath = ROOT_PATH . '/config/local.php';
 $config = file_exists($configPath) ? require $configPath : require ROOT_PATH . '/config/config.example.php';

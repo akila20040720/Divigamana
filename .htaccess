@@ -1,7 +1,10 @@
-Options -Indexes
 DirectoryIndex index.php
 <IfModule mod_rewrite.c>
 RewriteEngine On
 RewriteRule ^(app|config|database|storage|tests)/ - [F,L]
 </IfModule>
-<FilesMatch "\.(env|log|sql)$"><IfModule mod_authz_core.c>Require all denied</IfModule></FilesMatch>
+<FilesMatch "\.(env|log|sql)$">
+  <IfModule mod_authz_core.c>
+    Require all denied
+  </IfModule>
+</FilesMatch>
