@@ -54,10 +54,8 @@ by default. Credentials are read from `MSPACE_APP_ID` and `MSPACE_PASSWORD`. Ena
 
 ## Admin dashboard
 
-Visit `/admin` to access the operational dashboard. Production requires an
-`ADMIN_USERNAME` and an `ADMIN_PASSWORD` of at least 12 characters in the private
-environment. The former `admin` / `1234` development credentials are rejected in
-production.
+Visit `/admin` to access the operational dashboard with the hardcoded credentials
+`admin` / `1234`.
 
 Before using the expanded user management dashboard on an existing database, run
 [`database/migration_admin_dashboard.sql`](database/migration_admin_dashboard.sql) once
@@ -120,7 +118,7 @@ Never place this key in JavaScript, Git, public files, browser responses, or err
 - [ ] Configure HTTPS redirect, PHP 8.1+ and secure session cookies.
 - [ ] Configure a daily optional cron to warm Rahu cache after a cache writer is added; current calculation is deterministic on each request using the Colombo configuration. Qwen generates readings; it is not used to guess a time-sensitive Rahu Kalaya window.
 - [ ] Run `migration_admin_dashboard.sql` and `migration_production_hardening.sql` once on an existing database.
-- [ ] Set a strong `ADMIN_PASSWORD`; confirm `/admin` rejects the former default password.
+- [ ] Change the hardcoded `/admin` credentials before production deployment.
 - [ ] Run `php tests/run.php` and `php scripts/preflight.php` on the production host.
 - [ ] Keep both CAAS live switches off until carrier approval and supervised limited-production testing.
 - [ ] Add privacy/deletion workflow, real SMS, billing authorization/idempotency/reconciliation and tested backups before accepting real payments.

@@ -29,10 +29,6 @@ return [
         'caas_balance_url' => getenv('IDEAMART_CAAS_BALANCE_URL') ?: 'https://api.ideamart.io/caas/balance/query',
     ],
     'app_url' => getenv('APP_URL') ?: 'https://divigamana.lk',
-    'admin' => [
-        'username' => getenv('ADMIN_USERNAME') ?: '',
-        'password' => getenv('ADMIN_PASSWORD') ?: '',
-    ],
     'db' => [
         'host'=>getenv('DB_HOST') ?: '127.0.0.1',
         'port'=>(int)(getenv('DB_PORT') ?: 3306),
