@@ -29,7 +29,8 @@ final class ServiceCatalog {
             [10,'monthly','◐',true,$t('මේ මාසේ පලාපල','Monthly Horoscope','மாத பலன்'),[$f('birth_date','date',false,$t('උපන් දිනය (ඇත්නම්)','Date of birth (if known)','பிறந்த தேதி (தெரிந்தால்)')),$f('rashi','text',false,$t('ඔබේ රාශිය (දන්නේ නම්)','Your zodiac sign (if known)','உங்கள் ராசி (தெரிந்தால்)')),$f('month','month',true,$t('ඔබට අවශ්‍ය මාසය','Month you want to explore','நீங்கள் ஆராய விரும்பும் மாதம்')),$f('focus','text',false,$t('මෙම මාසයේ ප්‍රමුඛ අවධානය','Main focus for this month','இந்த மாதத்தின் முக்கிய கவனம்'))],'Organise the reflection by early, middle, and late month, with practical planning ideas and uncertainty clearly stated.'],
             [11,'yearly','◈',true,$t('මේ වසරේ පලාපල','Yearly Horoscope','வருட பலன்'),[$f('birth_date','date',false,$t('උපන් දිනය (ඇත්නම්)','Date of birth (if known)','பிறந்த தேதி (தெரிந்தால்)')),$f('rashi','text',false,$t('ඔබේ රාශිය (දන්නේ නම්)','Your zodiac sign (if known)','உங்கள் ராசி (தெரிந்தால்)')),$f('year','number',true,$t('සලකා බලන වසර','Year to explore','ஆராய வேண்டிய ஆண்டு')),$f('goals','textarea',false,$t('ඔබගේ අරමුණු හෝ බලාපොරොත්තු','Your goals or hopes','உங்கள் இலக்குகள் அல்லது நம்பிக்கைகள்'))],'Structure the answer around themes for the year, quarterly reflections, and practical actions; do not make guaranteed predictions.'],
         ];
-        return array_map(fn($r)=>['id'=>$r[0],'slug'=>$r[1],'icon'=>$r[2],'paid'=>$r[3],'title'=>$r[4],'fields'=>$r[5],'response_instruction'=>$r[6]],$data);
+        $prices=['name-reading'=>'0.00'];
+        return array_map(fn($r)=>['id'=>$r[0],'slug'=>$r[1],'icon'=>$r[2],'paid'=>$r[3],'price_lkr'=>$prices[$r[1]]??'20.00','title'=>$r[4],'fields'=>$r[5],'response_instruction'=>$r[6]],$data);
     }
     public static function find(string $slug): ?array { foreach(self::all() as $s)if($s['slug']===$slug)return $s; return null; }
 }

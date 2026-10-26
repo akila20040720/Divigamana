@@ -2,6 +2,8 @@
 namespace Divigamana\Controllers;
 
 use Divigamana\Services\QwenProvider;
+use Divigamana\Services\IdeamartClient;
+use Divigamana\Services\MspaceClient;
 use Divigamana\Services\RahuKalaya;
 use Divigamana\Services\ServiceCatalog;
 use Divigamana\Support\Database;
@@ -14,6 +16,9 @@ final class ApiController {
         if (substr($number,0,1)==='0') $number='94'.substr($number,1);
         return substr($number,0,2)==='94'&&strlen($number)===11 ? '+'.$number : null;
     }
+    private static function maskMobile(string $mobile): string {
+        return substr($mobile,0,4).'******'.substr($mobile,-2);
+    }
     private static function rate(string $key,int $seconds): bool {
         $now=time();
         if (($_SESSION['rate'][$key]??0)>$now-$seconds) return false;
@@ -21,7 +26,16 @@ final class ApiController {
         return true;
     }
     private static function development(): bool { return (APP_CONFIG['app_env']??'production')==='development'; }
+    private static function skipDatabase(): bool { return !empty(APP_CONFIG['skip_database_check']); }
     private static function demoOtpEnabled(): bool { return self::development()||!empty(APP_CONFIG['demo_otp_enabled']); }
+    private static function touchLogin($pdo, int $userId): void {
+        $pdo->prepare('UPDATE users SET last_login_at=NOW() WHERE id=?')->execute([$userId]);
+    }
+    private static function configuredAmount(string $amount): bool {
+        if (!preg_match('/^(?:0|[1-9]\d{0,7})\.\d{2}$/',$amount)||$amount==='0.00') return false;
+        $amounts=array_values(array_unique(array_map(static fn(array $service): string=>$service['price_lkr'],array_filter(ServiceCatalog::all(),static fn(array $service): bool=>$service['paid']))));
+        return in_array($amount,$amounts,true);
+    }
     private static function cleanAnswer(string $value): string {
         $value=strip_tags($value);
         return function_exists('mb_substr') ? mb_substr($value,0,2500) : substr($value,0,2500);
@@ -49,23 +63,96 @@ final class ApiController {
     public static function auth(): void {
         $input=Http::input();
         Http::requirePostCsrf($input);
-        if (!self::demoOtpEnabled()) Http::json(['ok'=>false,'error'=>'OTP verification is not configured.'],503);
         $mobile=self::mobile((string)($input['mobile']??''));
         if (!$mobile) Http::json(['ok'=>false,'error'=>'Enter a valid Sri Lankan mobile number.'],422);
         if (empty($input['consent'])) Http::json(['ok'=>false,'error'=>'Subscription consent is required.'],422);
-        if (!self::rate('otp',30)) Http::json(['ok'=>false,'error'=>'Please wait before requesting another code.'],429);
-        $_SESSION['otp_mobile']=$mobile;
+        $rateKey='otp:'.hash('sha256',$mobile.'|'.(string)($_SERVER['REMOTE_ADDR']??''));
+        if (!self::development() && !self::rate($rateKey,60)) Http::json(['ok'=>false,'error'=>'Please wait before requesting another code.'],429);
         $_SESSION['otp_consent']=true;
+        $ideamart=new IdeamartClient();
+        if ($ideamart->enabled()) {
+            try {
+                $response=$ideamart->otpRequest('tel:'.substr($mobile,1), [
+                    'client'=>'WEBAPP',
+                    'device'=>substr((string)($_SERVER['HTTP_USER_AGENT']??'Web browser'),0,120),
+                    'os'=>'Web',
+                    'appCode'=>(string)(APP_CONFIG['app_url']??'https://divigamana.lk'),
+                ]);
+                if (($response['statusCode']??'')==='E1351') {
+                    try {
+                        $pdo=Database::pdo();
+                        $statement=$pdo->prepare('SELECT * FROM users WHERE mobile_e164=? AND phone_verified_real=1 AND ideamart_subscriber_id IS NOT NULL LIMIT 1');
+                        $statement->execute([$mobile]);
+                        $existingUser=$statement->fetch();
+                    } catch (\PDOException $error) {
+                        unset($_SESSION['rate'][$rateKey]);
+                        error_log('Existing Ideamart user lookup failed: '.$error->getMessage());
+                        Http::json(['ok'=>false,'error'=>'Your account is registered, but the application database is unavailable. Please try again after the database service is restored.'],503);
+                    }
+                    if ($existingUser) {
+                        if (($existingUser['account_status'] ?? 'active') === 'blocked') {
+                            Http::json(['ok'=>false,'error'=>'This account has been blocked. Contact support for assistance.'],403);
+                        }
+                        self::touchLogin($pdo, (int)$existingUser['id']);
+                        Session::login($existingUser);
+                        unset($_SESSION['rate'][$rateKey],$_SESSION['otp_mobile'],$_SESSION['otp_consent'],$_SESSION['otp_reference']);
+                        Http::json(['ok'=>true,'existing'=>true,'message'=>'You are already registered. You have been logged in.']);
+                    }
+                    unset($_SESSION['rate'][$rateKey]);
+                    error_log('Ideamart OTP request reported an existing user without a locally verified account: '.self::maskMobile($mobile));
+                    Http::json(['ok'=>false,'error'=>'This mobile number is already registered. Complete verification on the original account to continue.'],409);
+                }
+                if (!IdeamartClient::successful($response)) {
+                    unset($_SESSION['rate'][$rateKey]);
+                    error_log('Ideamart OTP request rejected: '.IdeamartClient::diagnostic($response));
+                    Http::json(['ok'=>false,'error'=>'Could not send the verification code. Please try again.'],502);
+                }
+                $_SESSION['otp_reference']=$response['referenceNo']??null;
+                $_SESSION['otp_mobile']=$mobile;
+                $_SESSION['otp_attempts']=0;
+                Http::json(['ok'=>true,'message'=>'A verification code was sent to your mobile number.']);
+            } catch (\Throwable $error) {
+                unset($_SESSION['rate'][$rateKey]);
+                error_log('Ideamart OTP request transport failure: '.$error->getMessage());
+                Http::json(['ok'=>false,'error'=>'OTP service is temporarily unavailable.'],503);
+            }
+        }
+        if (!self::demoOtpEnabled()) Http::json(['ok'=>false,'error'=>'OTP verification is not configured.'],503);
+        $_SESSION['otp_mobile']=$mobile;
         $_SESSION['otp_demo_expires']=time()+600;
         Http::json(['ok'=>true,'message'=>'Development mode: enter any six-digit code. No SMS was sent.']);
     }
     public static function verify(): void {
         $input=Http::input();
         Http::requirePostCsrf($input);
-        if (!self::demoOtpEnabled()) Http::json(['ok'=>false,'error'=>'OTP verification is not configured.'],503);
         $code=(string)($input['otp']??'');
         $mobile=$_SESSION['otp_mobile']??null;
-        if (!preg_match('/^\d{6}$/',$code)||!$mobile||empty($_SESSION['otp_consent'])||time()>($_SESSION['otp_demo_expires']??0)) Http::json(['ok'=>false,'error'=>'Enter a valid six-digit demo code.'],422);
+        if (!preg_match('/^\d{6}$/',$code)||!$mobile||empty($_SESSION['otp_consent'])) {
+            error_log('OTP verification rejected locally: invalid code, missing OTP session, or missing consent.');
+            Http::json(['ok'=>false,'error'=>'The verification session has expired. Request a new OTP and try again.'],422);
+        }
+        $_SESSION['otp_attempts']=(int)($_SESSION['otp_attempts']??0)+1;
+        if ($_SESSION['otp_attempts']>3) Http::json(['ok'=>false,'error'=>'Too many verification attempts. Request a new code.'],429);
+        $ideamart=new IdeamartClient();
+        $subscriberId=null;
+        if ($ideamart->enabled()) {
+            try {
+                $response=$ideamart->otpVerify((string)($_SESSION['otp_reference']??''),$code);
+                if (!IdeamartClient::successful($response)) {
+                    error_log('Ideamart OTP verification rejected: '.IdeamartClient::diagnostic($response));
+                    Http::json(['ok'=>false,'error'=>'The verification code is invalid or expired. Request a new OTP and try again.'],422);
+                }
+                $subscriberId=(string)($response['subscriberId']??'');
+                if ($subscriberId==='') Http::json(['ok'=>false,'error'=>'OTP verification returned no subscriber identity.'],502);
+                $subscription=$ideamart->subscribe($subscriberId);
+                if (!IdeamartClient::successful($subscription,['E1351'])) Http::json(['ok'=>false,'error'=>'Mobile verification succeeded, but subscription could not be activated.'],502);
+            } catch (\Throwable $error) {
+                error_log('Ideamart OTP verification failed: '.$error->getMessage());
+                Http::json(['ok'=>false,'error'=>'OTP service is temporarily unavailable.'],503);
+            }
+        } elseif (time()>($_SESSION['otp_demo_expires']??0)) {
+            Http::json(['ok'=>false,'error'=>'The demo code has expired.'],422);
+        }
         $pdo=null;
         try {
             $pdo=Database::pdo();
@@ -74,27 +161,176 @@ final class ApiController {
             $statement->execute([$mobile]);
             $user=$statement->fetch();
             if (!$user) {
-                $pdo->prepare("INSERT INTO users (mobile_e164,otp_verified_demo,phone_verified_real,role) VALUES (?,1,0,'user')")->execute([$mobile]);
+                $pdo->prepare("INSERT INTO users (mobile_e164,ideamart_subscriber_id,otp_verified_demo,phone_verified_real,role) VALUES (?,?,?,?,'user')")->execute([$mobile,$subscriberId,$subscriberId?0:1,$subscriberId?1:0]);
                 $id=(int)$pdo->lastInsertId();
-                $pdo->prepare("INSERT INTO user_subscriptions (user_id,status,is_simulated,accepted_at,starts_at,ends_at) VALUES (?,'active',1,NOW(),NOW(),DATE_ADD(NOW(),INTERVAL 1 DAY))")->execute([$id]);
-                $pdo->prepare("INSERT INTO consent_history (user_id,consent_type,consent_text,locale) VALUES (?,'simulated_subscription','Daily Rs. 8.00 + Tax simulated development subscription',?)")->execute([$id,$input['locale']??'si-LK']);
+                $pdo->prepare("INSERT INTO user_subscriptions (user_id,status,is_simulated,accepted_at,starts_at,ends_at) VALUES (?,'active',?,NOW(),NOW(),DATE_ADD(NOW(),INTERVAL 1 DAY))")->execute([$id,$subscriberId?0:1]);
+                $consentText=$subscriberId?'I consented to the Ideamart subscription after reviewing the applicable service terms.':'Daily Rs. 8.00 + Tax simulated development subscription';
+                $pdo->prepare("INSERT INTO consent_history (user_id,consent_type,consent_text,locale) VALUES (?,'subscription',?,?)")->execute([$id,$consentText,$input['locale']??'si-LK']);
                 $user=['id'=>$id,'mobile_e164'=>$mobile,'role'=>'user'];
             } else {
-                $pdo->prepare('UPDATE users SET otp_verified_demo=1 WHERE id=?')->execute([$user['id']]);
+                if (($user['account_status'] ?? 'active') === 'blocked') {
+                    $pdo->rollBack();
+                    Http::json(['ok'=>false,'error'=>'This account has been blocked. Contact support for assistance.'],403);
+                }
+                $pdo->prepare('UPDATE users SET otp_verified_demo=?,phone_verified_real=?,ideamart_subscriber_id=COALESCE(?,ideamart_subscriber_id) WHERE id=?')->execute([$subscriberId?0:1,$subscriberId?1:0,$subscriberId,$user['id']]);
             }
             $pdo->commit();
+            self::touchLogin($pdo, (int)$user['id']);
             Session::login($user);
-            unset($_SESSION['otp_mobile'],$_SESSION['otp_consent']);
-            Http::json(['ok'=>true,'user'=>Session::user(),'simulated'=>true]);
+            unset($_SESSION['otp_mobile'],$_SESSION['otp_consent'],$_SESSION['otp_reference'],$_SESSION['otp_attempts']);
+            Http::json(['ok'=>true,'user'=>Session::user(),'simulated'=>!$subscriberId]);
         } catch (\Throwable $error) {
             if ($pdo&&$pdo->inTransaction()) $pdo->rollBack();
-            if (self::development()) {
+            if (self::development() || self::skipDatabase()) {
                 Session::login(['id'=>0,'mobile_e164'=>$mobile,'role'=>'user']);
                 $_SESSION['offline_demo']=true;
                 unset($_SESSION['otp_mobile'],$_SESSION['otp_consent']);
-                Http::json(['ok'=>true,'user'=>Session::user(),'simulated'=>true,'database_simulated'=>true,'notice'=>'Database is unavailable, so this is a temporary demo session. No mobile number or reading was saved.']);
+                Http::json(['ok'=>true,'user'=>Session::user(),'simulated'=>true,'database_simulated'=>true,'notice'=>'Ideamart registration completed, but the database is unavailable. This temporary session is not saved.']);
             }
             self::databaseFailure($error);
+        }
+    }
+    private static function ideamartUser(): array {
+        $user=Session::user();
+        if (!$user) Http::json(['ok'=>false,'error'=>'Please sign in first.'],401);
+        try {
+            $statement=Database::pdo()->prepare('SELECT * FROM users WHERE id=? LIMIT 1');
+            $statement->execute([$user['id']]);
+            $record=$statement->fetch();
+        } catch (\Throwable $error) { self::databaseFailure($error); }
+        if (!$record || empty($record['ideamart_subscriber_id'])) Http::json(['ok'=>false,'error'=>'Complete mobile verification first.'],409);
+        if (($record['account_status'] ?? 'active') === 'blocked') Http::json(['ok'=>false,'error'=>'This account has been blocked. Contact support for assistance.'],403);
+        return $record;
+    }
+    private static function mspaceUser(): array {
+        $user=Session::user();
+        if (!$user) Http::json(['ok'=>false,'error'=>'Please sign in first.'],401);
+        try { $statement=Database::pdo()->prepare('SELECT * FROM users WHERE id=? LIMIT 1'); $statement->execute([$user['id']]); $record=$statement->fetch(); }
+        catch (\Throwable $error) { self::databaseFailure($error); }
+        if (!$record||empty($record['phone_verified_real'])) Http::json(['ok'=>false,'error'=>'Verified mobile ownership is required.'],409);
+        if (($record['account_status']??'active')==='blocked') Http::json(['ok'=>false,'error'=>'This account has been blocked. Contact support for assistance.'],403);
+        if (!preg_match('/^\+947[01]\d{7}$/',(string)$record['mobile_e164'])) Http::json(['ok'=>false,'error'=>'mSpace charging is available only for supported Mobitel numbers.'],422);
+        return $record;
+    }
+    public static function subscribe(): void {
+        $input=Http::input(); Http::requirePostCsrf($input);
+        if (empty($input['consent'])) Http::json(['ok'=>false,'error'=>'Subscription consent is required.'],422);
+        $user=self::ideamartUser();
+        try {
+            $response=(new IdeamartClient())->subscribe($user['ideamart_subscriber_id']);
+            if (!IdeamartClient::successful($response,['E1351'])) Http::json(['ok'=>false,'error'=>'Subscription could not be activated.'],502);
+            $pdo=Database::pdo();
+            $pdo->prepare("INSERT INTO consent_history (user_id,consent_type,consent_text,locale) VALUES (?,'ideamart_subscription',?,?)")->execute([$user['id'],'I consent to the disclosed subscription terms and charges.',(string)($input['locale']??'si-LK')]);
+            $pdo->prepare("INSERT INTO user_subscriptions (user_id,status,is_simulated,accepted_at,starts_at,ends_at) VALUES (?,'active',0,NOW(),NOW(),DATE_ADD(NOW(),INTERVAL 1 DAY))")->execute([$user['id']]);
+            Http::json(['ok'=>true,'subscription'=>$response]);
+        } catch (\Throwable $error) { error_log('Ideamart subscribe failed: '.$error->getMessage()); Http::json(['ok'=>false,'error'=>'Subscription service is temporarily unavailable.'],503); }
+    }
+    public static function unsubscribe(): void {
+        $input=Http::input(); Http::requirePostCsrf($input); $user=self::ideamartUser();
+        try {
+            $response=(new IdeamartClient())->unsubscribe($user['ideamart_subscriber_id']);
+            if (!IdeamartClient::successful($response,['E1356'])) Http::json(['ok'=>false,'error'=>'Unsubscription could not be completed.'],502);
+            Database::pdo()->prepare("UPDATE user_subscriptions SET status='cancelled',ends_at=NOW() WHERE user_id=? AND status='active'")->execute([$user['id']]);
+            Http::json(['ok'=>true,'subscription'=>$response]);
+        } catch (\Throwable $error) { error_log('Ideamart unsubscribe failed: '.$error->getMessage()); Http::json(['ok'=>false,'error'=>'Subscription service is temporarily unavailable.'],503); }
+    }
+    public static function ideamartSubscriptionStatus(): void {
+        $input=Http::input(); Http::requirePostCsrf($input);
+        $user=self::ideamartUser();
+        try { $response=(new IdeamartClient())->subscriptionStatus($user['ideamart_subscriber_id']); Http::json(['ok'=>IdeamartClient::successful($response),'subscription'=>$response]); }
+        catch (\Throwable $error) { error_log('Ideamart status failed: '.$error->getMessage()); Http::json(['ok'=>false,'error'=>'Subscription service is temporarily unavailable.'],503); }
+    }
+    public static function subscriptionBase(): void {
+        $input=Http::input(); Http::requirePostCsrf($input);
+        $admin=APP_CONFIG['admin']??[];
+        $fingerprint=hash('sha256',(string)($admin['username']??'')."\0".(string)($admin['password']??''));
+        if (!isset($_SESSION['admin_fingerprint'])||!hash_equals($fingerprint,(string)$_SESSION['admin_fingerprint'])) Http::json(['ok'=>false,'error'=>'Administrator access required.'],403);
+        try { $response=(new IdeamartClient())->subscriptionBase(); Http::json(['ok'=>IdeamartClient::successful($response),'base'=>$response]); }
+        catch (\Throwable $error) { error_log('Ideamart base query failed: '.$error->getMessage()); Http::json(['ok'=>false,'error'=>'Subscription service is temporarily unavailable.'],503); }
+    }
+    public static function caasBalance(): void {
+        $input=Http::input(); Http::requirePostCsrf($input);
+        $user=self::ideamartUser();
+        try { $response=(new IdeamartClient())->balance($user['ideamart_subscriber_id']); Http::json(['ok'=>IdeamartClient::successful($response),'balance'=>$response]); }
+        catch (\Throwable $error) { error_log('Ideamart balance failed: '.$error->getMessage()); Http::json(['ok'=>false,'error'=>'Charging service is temporarily unavailable.'],503); }
+    }
+    public static function caasCharge(): void {
+        $input=Http::input(); Http::requirePostCsrf($input); $user=self::ideamartUser();
+        $amount=(string)($input['amount']??'');
+        if (!self::configuredAmount($amount)) Http::json(['ok'=>false,'error'=>'This charge amount is not configured for a service.'],422);
+        try {
+            $key=(string)($input['idempotency_key']??'');
+            if (!preg_match('/^[a-zA-Z0-9-]{16,100}$/',$key)) Http::json(['ok'=>false,'error'=>'Invalid request identifier.'],422);
+            $external='divigamana-'.substr(hash('sha256',(string)$user['id'].'|'.$key),0,20);
+            $pdo=Database::pdo();
+            $existing=$pdo->prepare("SELECT status FROM payment_transactions WHERE user_id=? AND provider='ideamart' AND external_reference=? LIMIT 1");
+            $existing->execute([$user['id'],$external]);
+            $existingStatus=$existing->fetchColumn();
+            if ($existingStatus==='paid') Http::json(['ok'=>true,'charge'=>['statusCode'=>'E1379','externalTrxId'=>$external],'cached'=>true]);
+            if ($existingStatus==='authorized') Http::json(['ok'=>false,'error'=>'This charge is already in progress; do not retry it with a new identifier.'],409);
+            $pdo->prepare("INSERT INTO payment_transactions (user_id,amount,currency,status,is_simulated,provider,external_reference,description) VALUES (?,?,'LKR','authorized',0,'ideamart',?,'Ideamart CAAS charge')")->execute([$user['id'],$amount,$external]);
+            $response=(new IdeamartClient())->charge($user['ideamart_subscriber_id'],$external,$amount);
+            $success=IdeamartClient::successful($response,['E1379']);
+            $pdo->prepare("UPDATE payment_transactions SET status=?,provider_reference=? WHERE user_id=? AND provider='ideamart' AND external_reference=?")->execute([$success?'paid':'failed',(string)($response['internalTrxId']??''),$user['id'],$external]);
+            Http::json(['ok'=>$success,'status_code'=>(string)($response['statusCode']??'UNKNOWN'),'external_reference'=>$external],$success?200:502);
+        } catch (\Throwable $error) { error_log('Ideamart charge failed: '.$error->getMessage()); Http::json(['ok'=>false,'error'=>'Charging service is temporarily unavailable.'],503); }
+    }
+    public static function mspaceChargeOtp(): void {
+        $input=Http::input(); Http::requirePostCsrf($input); $user=self::mspaceUser();
+        $amount=(string)($input['amount']??'');
+        if (!self::configuredAmount($amount)) Http::json(['ok'=>false,'error'=>'This charge amount is not configured for a service.'],422);
+        try {
+            $key=(string)($input['idempotency_key']??'');
+            if (!preg_match('/^[a-zA-Z0-9-]{16,100}$/',$key)) Http::json(['ok'=>false,'error'=>'Invalid request identifier.'],422);
+            $external='divigamana-'.substr(hash('sha256',(string)$user['id'].'|'.$key),0,20);
+            $subscriber='tel:'.substr((string)$user['mobile_e164'],1);
+            $pdo=Database::pdo();
+            $existing=$pdo->prepare("SELECT status FROM payment_transactions WHERE user_id=? AND provider='mspace' AND external_reference=? LIMIT 1");
+            $existing->execute([$user['id'],$external]);
+            $existingStatus=$existing->fetchColumn();
+            if ($existingStatus==='paid') Http::json(['ok'=>true,'cached'=>true,'external_reference'=>$external]);
+            if ($existingStatus==='authorized') Http::json(['ok'=>false,'error'=>'This charge is already awaiting verification.'],409);
+            $pdo->prepare("INSERT INTO payment_transactions (user_id,amount,currency,status,is_simulated,provider,external_reference,description) VALUES (?,?,'LKR','authorized',0,'mspace',?,'mSpace CAAS OTP charge')")->execute([$user['id'],$amount,$external]);
+            $response=(new MspaceClient())->generateChargeOtp($subscriber,$external,$amount);
+            if (!MspaceClient::successful($response)) {
+                $pdo->prepare("UPDATE payment_transactions SET status='failed' WHERE user_id=? AND provider='mspace' AND external_reference=?")->execute([$user['id'],$external]);
+                error_log('mSpace CAAS OTP rejected: '.MspaceClient::diagnostic($response));
+                Http::json(['ok'=>false,'error'=>'mSpace could not send the charging OTP.'],502);
+            }
+            $_SESSION['mspace_charge']=[
+                'externalTrxId'=>$external,
+                'referenceNo'=>(string)($response['referenceNo']??''),
+                'amount'=>$amount,
+                'subscriberId'=>$subscriber,
+                'externalTrxId'=>$external,
+                'userId'=>(int)$user['id'],
+                'expiresAt'=>time()+600,
+            ];
+            if ($_SESSION['mspace_charge']['referenceNo']==='') { $pdo->prepare("UPDATE payment_transactions SET status='failed' WHERE user_id=? AND provider='mspace' AND external_reference=?")->execute([$user['id'],$external]); unset($_SESSION['mspace_charge']); Http::json(['ok'=>false,'error'=>'mSpace returned no charging reference.'],502); }
+            Http::json(['ok'=>true,'message'=>'A charging OTP was sent to your mobile number.']);
+        } catch (\Throwable $error) {
+            error_log('mSpace CAAS OTP transport failure: '.$error->getMessage());
+            Http::json(['ok'=>false,'error'=>'mSpace charging service is temporarily unavailable.'],503);
+        }
+    }
+    public static function mspaceChargeVerify(): void {
+        $input=Http::input(); Http::requirePostCsrf($input); $user=self::mspaceUser();
+        $charge=$_SESSION['mspace_charge']??null; $otp=(string)($input['otp']??'');
+        if (!is_array($charge)||(int)($charge['userId']??0)!==(int)$user['id']||time()>((int)($charge['expiresAt']??0))||!preg_match('/^\d{4,8}$/',$otp)) {
+            Http::json(['ok'=>false,'error'=>'The mSpace charging session has expired. Request a new charging OTP.'],422);
+        }
+        try {
+            $response=(new MspaceClient())->verifyChargeOtp((string)$charge['referenceNo'],$otp,(string)$charge['subscriberId']);
+            if (!MspaceClient::successful($response)) {
+                error_log('mSpace CAAS OTP verification rejected: '.MspaceClient::diagnostic($response));
+                Http::json(['ok'=>false,'error'=>'The mSpace charging OTP is invalid or expired.'],422);
+            }
+            Database::pdo()->prepare("UPDATE payment_transactions SET status='paid',provider_reference=? WHERE user_id=? AND provider='mspace' AND external_reference=?")->execute([(string)($response['internalTrxId']??''),$user['id'],(string)$charge['externalTrxId']]);
+            unset($_SESSION['mspace_charge']);
+            Http::json(['ok'=>true,'status_code'=>(string)($response['statusCode']??'UNKNOWN'),'external_reference'=>(string)$charge['externalTrxId']]);
+        } catch (\Throwable $error) {
+            error_log('mSpace CAAS OTP verification failure: '.$error->getMessage());
+            Http::json(['ok'=>false,'error'=>'mSpace charging service is temporarily unavailable.'],503);
         }
     }
     public static function status(): void {
@@ -102,7 +338,11 @@ final class ApiController {
         if (!$user) Http::json(['ok'=>true,'authenticated'=>false]);
         if (!empty($_SESSION['offline_demo'])) Http::json(['ok'=>true,'authenticated'=>true,'user'=>$user,'subscribed'=>true,'subscription'=>['status'=>'active','is_simulated'=>1,'ends_at'=>date('Y-m-d H:i:s',time()+86400),'temporary'=>true]]);
         try {
-            $statement=Database::pdo()->prepare("SELECT status,is_simulated,ends_at FROM user_subscriptions WHERE user_id=? ORDER BY id DESC LIMIT 1");
+            $pdo=Database::pdo();
+            $account=$pdo->prepare('SELECT account_status FROM users WHERE id=? LIMIT 1');
+            $account->execute([$user['id']]);
+            if ($account->fetchColumn()==='blocked') Http::json(['ok'=>false,'error'=>'This account has been blocked. Contact support for assistance.'],403);
+            $statement=$pdo->prepare("SELECT status,is_simulated,ends_at FROM user_subscriptions WHERE user_id=? ORDER BY id DESC LIMIT 1");
             $statement->execute([$user['id']]);
             $subscription=$statement->fetch();
             Http::json(['ok'=>true,'authenticated'=>true,'user'=>$user,'subscribed'=>$subscription&&$subscription['status']==='active'&&$subscription['ends_at']>date('Y-m-d H:i:s'),'subscription'=>$subscription]);
@@ -142,18 +382,46 @@ final class ApiController {
                 error_log('Divigamana: Attempting database connection');
                 $pdo=Database::pdo();
                 error_log('Divigamana: Database connection successful');
+                $account=$pdo->prepare('SELECT account_status FROM users WHERE id=? LIMIT 1');
+                $account->execute([$user['id']]);
+                if ($account->fetchColumn()==='blocked') Http::json(['ok'=>false,'error'=>'This account has been blocked. Contact support for assistance.'],403);
                 $subscription=$pdo->prepare("SELECT id FROM user_subscriptions WHERE user_id=? AND status='active' AND ends_at>NOW() LIMIT 1");
                 $subscription->execute([$user['id']]);
                 if (!$subscription->fetch()) Http::json(['ok'=>false,'error'=>'An active subscription is required.'],403);
-                $existing=$pdo->prepare('SELECT r.result_json FROM horoscope_requests q JOIN horoscope_results r ON r.request_id=q.id WHERE q.user_id=? AND q.idempotency_key=?');
+                if ($service['paid']&&!(new IdeamartClient())->chargingEnabled()) Http::json(['ok'=>false,'error'=>'Paid readings are temporarily unavailable while carrier billing is disabled.'],503);
+                $existing=$pdo->prepare("SELECT q.id,q.status,r.result_json,p.status payment_status FROM horoscope_requests q LEFT JOIN horoscope_results r ON r.request_id=q.id LEFT JOIN payment_transactions p ON p.request_id=q.id AND p.provider='ideamart' WHERE q.user_id=? AND q.idempotency_key=? LIMIT 1");
                 $existing->execute([$user['id'],$idempotency]);
-                if ($row=$existing->fetch()) Http::json(['ok'=>true,'result'=>json_decode($row['result_json'],true),'cached'=>true]);
+                $existingRow=$existing->fetch();
+                if ($existingRow&&!empty($existingRow['result_json'])) Http::json(['ok'=>true,'result'=>json_decode($existingRow['result_json'],true),'cached'=>true]);
                 $context=self::readingContext($pdo,(int)$user['id'],(int)$service['id']);
-                $pdo->beginTransaction();
-                $pdo->prepare("INSERT INTO horoscope_requests (user_id,service_id,status,locale,questionnaire_json,idempotency_key) VALUES (?,?, 'processing',?,?,?)")->execute([$user['id'],$service['id'],$input['locale']??'si-LK',json_encode($answers,JSON_UNESCAPED_UNICODE),$idempotency]);
-                $requestId=(int)$pdo->lastInsertId();
-                if ($service['paid']) $pdo->prepare("INSERT INTO payment_transactions (user_id,request_id,amount,currency,status,is_simulated,description) VALUES (?,?,20,'LKR','simulated_confirmed',1,'Simulated per-reading charge')")->execute([$user['id'],$requestId]);
-                $pdo->commit();
+                $externalTrxId=null;
+                if ($existingRow) {
+                    $requestId=(int)$existingRow['id'];
+                    if ($service['paid']&&$existingRow['payment_status']!=='paid') {
+                        $message=$existingRow['payment_status']==='authorized'?'The carrier charge is awaiting reconciliation. Do not submit another payment.':'The previous carrier charge was not completed.';
+                        Http::json(['ok'=>false,'error'=>$message],$existingRow['payment_status']==='authorized'?409:402);
+                    }
+                    $pdo->prepare("UPDATE horoscope_requests SET status='processing' WHERE id=?")->execute([$requestId]);
+                } else {
+                    $pdo->beginTransaction();
+                    $pdo->prepare("INSERT INTO horoscope_requests (user_id,service_id,status,locale,questionnaire_json,idempotency_key) VALUES (?,?, 'processing',?,?,?)")->execute([$user['id'],$service['id'],$input['locale']??'si-LK',json_encode($answers,JSON_UNESCAPED_UNICODE),$idempotency]);
+                    $requestId=(int)$pdo->lastInsertId();
+                    if ($service['paid']) {
+                        $externalTrxId='divigamana-'.substr(hash('sha256',(string)$user['id'].'|'.$idempotency.'|'.$service['slug']),0,20);
+                        $pdo->prepare("INSERT INTO payment_transactions (user_id,request_id,amount,currency,status,is_simulated,provider,external_reference,description) VALUES (?,?,?,'LKR','authorized',0,'ideamart',?,'Ideamart CAAS reading charge')")->execute([$user['id'],$requestId,$service['price_lkr'],$externalTrxId]);
+                    }
+                    $pdo->commit();
+                }
+                if ($externalTrxId !== null) {
+                    $identity=$pdo->prepare('SELECT ideamart_subscriber_id FROM users WHERE id=?');
+                    $identity->execute([$user['id']]);
+                    $subscriber=(string)$identity->fetchColumn();
+                    if ($subscriber==='') Http::json(['ok'=>false,'error'=>'Mobile verification is required for paid services.'],409);
+                    $charge=(new IdeamartClient())->charge($subscriber,$externalTrxId,$service['price_lkr']);
+                    $charged=IdeamartClient::successful($charge,['E1379']);
+                    $pdo->prepare("UPDATE payment_transactions SET status=?,provider_reference=? WHERE request_id=? AND provider='ideamart' AND external_reference=?")->execute([$charged?'paid':'failed',(string)($charge['internalTrxId']??''),$requestId,$externalTrxId]);
+                    if (!$charged) { $pdo->prepare("UPDATE horoscope_requests SET status='failed' WHERE id=?")->execute([$requestId]); Http::json(['ok'=>false,'error'=>'The mobile charge was not completed. No reading was generated.'],402); }
+                }
                 $context['reading_reference']='request-'.$requestId.'-'.bin2hex(random_bytes(8));
             } catch (\Throwable $error) {
                 if ($pdo&&$pdo->inTransaction()) $pdo->rollBack();

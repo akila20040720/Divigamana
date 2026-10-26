@@ -2,6 +2,48 @@
 
 Mobile-first multilingual Sri Lankan astrology application for PHP 8.x and MySQL/MariaDB. It uses no Node.js or server-side build tooling.
 
+## Ideamart integration
+
+Ideamart calls are server-side only. Set these environment variables on the host (never in
+the browser or a committed config file):
+
+```text
+IDEAMART_APP_ID=
+IDEAMART_PASSWORD=
+```
+
+Copy `.env.example` to the server's private `.env`, fill in the credentials, and set
+`IDEAMART_LIVE=true` only after the application is provisioned and its server IP is
+whitelisted. Keep `IDEAMART_CAAS_LIVE=false` through OTP/subscription testing; it is a
+separate kill switch for real-money debit requests. With either switch or its required
+credentials missing, the corresponding operation refuses to make a network call. The demo OTP flow is disabled by default.
+Set `demo_otp_enabled` to `true` only for local development. Set `ideamart_live` to `true` only on a server with valid credentials and
+the required Ideamart IP whitelist/provisioning.
+
+The database uses TCP by default (`DB_HOST=127.0.0.1`, `DB_PORT=3306`) to avoid PHP
+trying a missing local MySQL socket. Set `DB_HOST=localhost` only when the production
+host intentionally exposes MySQL through its Unix socket.
+
+For a temporary local outage workaround only, set `SKIP_DATABASE_CHECK=true`. OTP and
+Ideamart registration can complete, but the session is temporary and no user, consent,
+subscription, or payment record is saved. Set it back to `false` before production use.
+
+The application uses the configured Ideamart OTP request/verify, subscription register and
+unregister/status/base, and CAAS balance/direct-debit endpoints. Paid readings use the
+server-side `ServiceCatalog` price map; `name-reading` is `0.00` and remains free. Every
+paid debit creates and stores its `externalTrxId` before the request and treats `E1379` as
+an idempotent success. Run `database/migration_ideamart.sql` on databases created before
+the Ideamart integration.
+
+## mSpace Mobitel TAP
+
+The optional mSpace provider implements the provisioned CAAS OTP flow. Mobitel must
+supply and approve the exact debit and OTP-verification endpoints; no endpoint is assumed
+by default. Credentials are read from `MSPACE_APP_ID` and `MSPACE_PASSWORD`. Enable
+`MSPACE_LIVE=true` only after provisioning and IP allow-listing, and keep the independent
+`MSPACE_CAAS_LIVE=false` until final billing approval. Use `POST /api.php?action=mspace-charge-otp` followed by
+`POST /api.php?action=mspace-charge-verify`.
+
 ## Local/development setup
 
 1. Create a MySQL database using `utf8mb4` and import [database/schema.sql](database/schema.sql), then [database/seed.sql](database/seed.sql) in phpMyAdmin.
@@ -9,6 +51,49 @@ Mobile-first multilingual Sri Lankan astrology application for PHP 8.x and MySQL
 3. Set database credentials. `mock_mode => true` makes results visibly mock development responses; it does not call an AI provider.
 4. Serve the repository root as the web root, or copy `index.php`, `api.php`, `robots.txt`, `sitemap.xml`, `.htaccess`, and `public/assets/` into `public_html` while keeping `app/` and `config/local.php` above it.
 5. Ensure PHP extensions `pdo_mysql`, `curl`, `mbstring`, and `openssl` are enabled. Enforce HTTPS and set `app_env` to `production` before launch.
+
+## Admin dashboard
+
+Visit `/admin` to access the operational dashboard. Production requires an
+`ADMIN_USERNAME` and an `ADMIN_PASSWORD` of at least 12 characters in the private
+environment. The former `admin` / `1234` development credentials are rejected in
+production.
+
+Before using the expanded user management dashboard on an existing database, run
+[`database/migration_admin_dashboard.sql`](database/migration_admin_dashboard.sql) once
+in phpMyAdmin. It adds account blocking and last-login audit fields; new installations
+receive them automatically from `database/schema.sql`.
+
+Before enabling either CAAS switch on an existing database, also run
+[`database/migration_production_hardening.sql`](database/migration_production_hardening.sql).
+It keeps the application's immutable idempotency key separate from the carrier's internal
+transaction reference, preventing retries from creating a second charge.
+
+## Production verification
+
+Run the offline route and carrier-contract suite first; it exercises every API route and
+both CAAS payload formats without contacting a carrier or moving money:
+
+```bash
+php tests/run.php
+```
+
+Then run the production preflight on the deployed server:
+
+```bash
+php scripts/preflight.php
+```
+
+After Ideamart credentials and the production server IP allow-list are confirmed, its
+read-only subscriber-base check can be added. This still never calls a debit endpoint:
+
+```bash
+php scripts/preflight.php --live-ideamart-readonly
+```
+
+Only after every required preflight item passes, limited-production billing is approved,
+and a real low-value transaction is supervised should `IDEAMART_CAAS_LIVE` or
+`MSPACE_CAAS_LIVE` be changed to `true`.
 
 ## Qwen production configuration
 
@@ -34,7 +119,10 @@ Never place this key in JavaScript, Git, public files, browser responses, or err
 - [ ] Set `app_env` to `production`, `mock_mode` to `false`, and production Qwen credentials.
 - [ ] Configure HTTPS redirect, PHP 8.1+ and secure session cookies.
 - [ ] Configure a daily optional cron to warm Rahu cache after a cache writer is added; current calculation is deterministic on each request using the Colombo configuration. Qwen generates readings; it is not used to guess a time-sensitive Rahu Kalaya window.
-- [ ] Create a real admin user (`UPDATE users SET role='admin' WHERE mobile_e164='+94…'`) only after secure demo replacement.
+- [ ] Run `migration_admin_dashboard.sql` and `migration_production_hardening.sql` once on an existing database.
+- [ ] Set a strong `ADMIN_PASSWORD`; confirm `/admin` rejects the former default password.
+- [ ] Run `php tests/run.php` and `php scripts/preflight.php` on the production host.
+- [ ] Keep both CAAS live switches off until carrier approval and supervised limited-production testing.
 - [ ] Add privacy/deletion workflow, real SMS, billing authorization/idempotency/reconciliation and tested backups before accepting real payments.
 
 ## Functional/security test plan
