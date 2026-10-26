@@ -8,7 +8,7 @@ define('ROOT_PATH', dirname(__DIR__));
 if (is_file(ROOT_PATH . '/.env')) {
     foreach (file(ROOT_PATH . '/.env', FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: [] as $line) {
         $line=trim($line);
-        if ($line==='' || $line[0]==='#' || !str_contains($line,'=')) continue;
+        if ($line==='' || $line[0]==='#' || strpos($line,'=')===false) continue;
         [$name,$value]=explode('=',$line,2);
         $name=trim($name);
         $value=trim($value);
