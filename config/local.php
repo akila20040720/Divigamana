@@ -33,7 +33,7 @@ return [
         'password' => getenv('ADMIN_PASSWORD') ?: '',
     ],
     'db' => [
-        'host'=>getenv('DB_HOST') ?: '127.0.0.1',
+        'host'=>getenv('DB_HOST') ?: 'localhost',
         'port'=>(int)(getenv('DB_PORT') ?: 3306),
         'name'=>getenv('DB_NAME') ?: '',
         'user'=>getenv('DB_USER') ?: '',
