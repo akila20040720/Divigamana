@@ -54,8 +54,8 @@ by default. Credentials are read from `MSPACE_APP_ID` and `MSPACE_PASSWORD`. Ena
 
 ## Admin dashboard
 
-Visit `/admin` to access the operational dashboard with the hardcoded credentials
-`admin` / `1234`.
+Visit `/admin` to access the operational dashboard with the `ADMIN_USERNAME` and
+`ADMIN_PASSWORD` values from the private environment configuration.
 
 Before using the expanded user management dashboard on an existing database, run
 [`database/migration_admin_dashboard.sql`](database/migration_admin_dashboard.sql) once

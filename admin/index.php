@@ -11,8 +11,13 @@ function money($value): string { return 'LKR ' . number_format((float)$value, 2)
 function validDay(string $value): string { return preg_match('/^\\d{4}-\\d{2}-\\d{2}$/', $value) ? $value : date('Y-m-d'); }
 function qs(array $values): string { return '?' . http_build_query(array_filter($values, static fn($v) => $v !== '' && $v !== null)); }
 
-$adminUsername = 'admin';
-$adminPassword = '1234';
+$adminConfig = APP_CONFIG['admin'] ?? [];
+$adminUsername = (string)($adminConfig['username'] ?? '');
+$adminPassword = (string)($adminConfig['password'] ?? '');
+if ($adminUsername === '' || $adminPassword === '') {
+    http_response_code(503);
+    exit('Admin dashboard credentials are not configured.');
+}
 $adminFingerprint=hash('sha256',$adminUsername."\0".$adminPassword);
 $authenticated=isset($_SESSION['admin_fingerprint'])&&hash_equals($adminFingerprint,(string)$_SESSION['admin_fingerprint']);
 $error = '';
