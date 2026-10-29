@@ -6,6 +6,7 @@ RewriteCond %{HTTPS} !=on
 RewriteCond %{HTTP:X-Forwarded-Proto} !https [NC]
 RewriteCond %{HTTP_HOST} !^(localhost|127\.0\.0\.1)(:[0-9]+)?$ [NC]
 RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [R=301,L]
+RewriteRule ^favicon\.ico$ public/assets/favicon.svg [L]
 RewriteRule ^(app|config|database|storage|tests)/ - [F,L]
 </IfModule>
 <FilesMatch "\.(env|log|sql)$">

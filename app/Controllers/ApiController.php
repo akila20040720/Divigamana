@@ -37,20 +37,18 @@ final class ApiController {
         return in_array($amount,$amounts,true);
     }
     private static function subscriptionState(string $providerStatus): string {
-        return match (strtoupper(trim($providerStatus))) {
-            'REGISTERED' => 'active',
-            'PENDING', 'PENDING CHARGE', 'CHARGE' => 'pending',
-            'UNREGISTERED' => 'cancelled',
-            default => 'inactive',
-        };
+        $providerStatus=strtoupper(trim($providerStatus));
+        if ($providerStatus==='REGISTERED') return 'active';
+        if (in_array($providerStatus,['PENDING','PENDING CHARGE','CHARGE'],true)) return 'pending';
+        if ($providerStatus==='UNREGISTERED') return 'cancelled';
+        return 'inactive';
     }
     private static function subscriptionEndSql(string $frequency): string {
-        return match (strtolower(trim($frequency))) {
-            'weekly', 'week' => 'DATE_ADD(NOW(),INTERVAL 7 DAY)',
-            'monthly', 'month' => 'DATE_ADD(NOW(),INTERVAL 1 MONTH)',
-            'yearly', 'year', 'annual' => 'DATE_ADD(NOW(),INTERVAL 1 YEAR)',
-            default => 'DATE_ADD(NOW(),INTERVAL 1 DAY)',
-        };
+        $frequency=strtolower(trim($frequency));
+        if (in_array($frequency,['weekly','week'],true)) return 'DATE_ADD(NOW(),INTERVAL 7 DAY)';
+        if (in_array($frequency,['monthly','month'],true)) return 'DATE_ADD(NOW(),INTERVAL 1 MONTH)';
+        if (in_array($frequency,['yearly','year','annual'],true)) return 'DATE_ADD(NOW(),INTERVAL 1 YEAR)';
+        return 'DATE_ADD(NOW(),INTERVAL 1 DAY)';
     }
     private static function saveIdeamartSubscription($pdo,int $userId,string $providerStatus,string $frequency='',?string $notifiedAt=null): void {
         $status=self::subscriptionState($providerStatus);
