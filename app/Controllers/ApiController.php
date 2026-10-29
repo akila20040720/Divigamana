@@ -341,6 +341,7 @@ final class ApiController {
             $response=(new IdeamartClient())->charge($user['ideamart_subscriber_id'],$external,$amount);
             $success=IdeamartClient::successful($response,['E1379']);
             $pdo->prepare("UPDATE payment_transactions SET status=?,provider_reference=? WHERE user_id=? AND provider='ideamart' AND external_reference=?")->execute([$success?'paid':'failed',(string)($response['internalTrxId']??''),$user['id'],$external]);
+            if (!$success) error_log('Ideamart CAAS direct debit rejected: '.IdeamartClient::diagnostic($response));
             Http::json(['ok'=>$success,'status_code'=>(string)($response['statusCode']??'UNKNOWN'),'external_reference'=>$external],$success?200:502);
         } catch (\Throwable $error) { error_log('Ideamart charge failed: '.$error->getMessage()); Http::json(['ok'=>false,'error'=>'Charging service is temporarily unavailable.'],503); }
     }
@@ -478,13 +479,20 @@ final class ApiController {
                     $identity->execute([$user['id']]);
                     $subscriber=(string)$identity->fetchColumn();
                     if ($subscriber==='') Http::json(['ok'=>false,'error'=>'Mobile verification is required for paid services.'],409);
-                    $charge=(new IdeamartClient())->charge($subscriber,$externalTrxId,$service['price_lkr']);
-                    $charged=IdeamartClient::successful($charge,['E1379']);
-                    $pdo->prepare("UPDATE payment_transactions SET status=?,provider_reference=? WHERE request_id=? AND provider='ideamart' AND external_reference=?")->execute([$charged?'paid':'failed',(string)($charge['internalTrxId']??''),$requestId,$externalTrxId]);
-                    if (!$charged) {
-                        error_log('Ideamart CAAS debit rejected: '.IdeamartClient::diagnostic($charge));
+                    try {
+                        $charge=(new IdeamartClient())->charge($subscriber,$externalTrxId,$service['price_lkr']);
+                        $charged=IdeamartClient::successful($charge,['E1379']);
+                        $pdo->prepare("UPDATE payment_transactions SET status=?,provider_reference=? WHERE request_id=? AND provider='ideamart' AND external_reference=?")->execute([$charged?'paid':'failed',(string)($charge['internalTrxId']??''),$requestId,$externalTrxId]);
+                        if (!$charged) {
+                            error_log('Ideamart CAAS debit rejected: '.IdeamartClient::diagnostic($charge));
+                            $pdo->prepare("UPDATE horoscope_requests SET status='failed' WHERE id=?")->execute([$requestId]);
+                            Http::json(['ok'=>false,'error'=>'The mobile charge was not completed. No reading was generated.','carrier_status'=>(string)($charge['statusCode']??'UNKNOWN')],402);
+                        }
+                    } catch (\Throwable $error) {
+                        $pdo->prepare("UPDATE payment_transactions SET status='failed' WHERE request_id=? AND provider='ideamart' AND external_reference=?")->execute([$requestId,$externalTrxId]);
                         $pdo->prepare("UPDATE horoscope_requests SET status='failed' WHERE id=?")->execute([$requestId]);
-                        Http::json(['ok'=>false,'error'=>'The mobile charge was not completed. No reading was generated.','carrier_status'=>(string)($charge['statusCode']??'UNKNOWN')],402);
+                        error_log('Ideamart CAAS debit transport failure: '.$error->getMessage());
+                        Http::json(['ok'=>false,'error'=>'The mobile charging service is temporarily unavailable. No reading was generated.'],503);
                     }
                 }
                 $context['reading_reference']='request-'.$requestId.'-'.bin2hex(random_bytes(8));

@@ -104,8 +104,13 @@ final class IdeamartClient
         $options=[CURLOPT_POST=>true,CURLOPT_POSTFIELDS=>json_encode($body,JSON_UNESCAPED_UNICODE|JSON_THROW_ON_ERROR),CURLOPT_HTTPHEADER=>['Content-Type: application/json','Accept: application/json'],CURLOPT_RETURNTRANSFER=>true,CURLOPT_CONNECTTIMEOUT=>5,CURLOPT_TIMEOUT=>15,CURLOPT_SSL_VERIFYPEER=>true,CURLOPT_SSL_VERIFYHOST=>2];
         if (defined('CURLOPT_PROTOCOLS')&&defined('CURLPROTO_HTTPS')) $options[CURLOPT_PROTOCOLS]=CURLPROTO_HTTPS;
         curl_setopt_array($handle,$options);
-        $raw=curl_exec($handle); $http=(int)curl_getinfo($handle,CURLINFO_RESPONSE_CODE); $failed=$raw===false||curl_errno($handle)!==0;
-        if ($failed||$http<200||$http>=300) throw new RuntimeException('Ideamart request failed.');
+        $raw=curl_exec($handle);
+        $http=(int)curl_getinfo($handle,CURLINFO_RESPONSE_CODE);
+        $curlErrno=(int)curl_errno($handle);
+        $failed=$raw===false||$curlErrno!==0;
+        if ($failed||$http<200||$http>=300) {
+            throw new RuntimeException('Ideamart request failed: endpoint='.$urlKey.' http='.$http.' curl_errno='.$curlErrno);
+        }
         if (strlen((string)$raw)>1048576) throw new RuntimeException('Ideamart response was too large.');
         $response=json_decode((string)$raw,true);
         if (!is_array($response)||!isset($response['statusCode'])) throw new RuntimeException('Ideamart returned an invalid response.');
