@@ -344,7 +344,7 @@ final class ApiController {
                 $_SESSION['caas_paid_service']=$service['slug'];
                 Http::json(['ok'=>true,'charge'=>['statusCode'=>'E1379','externalTrxId'=>$external],'external_reference'=>$external,'cached'=>true]);
             }
-            $retryable=$existingStatus==='authorized'&&str_starts_with((string)($existingRow['provider_reference']??''),'retryable:');
+            $retryable=$existingStatus==='authorized'&&strpos((string)($existingRow['provider_reference']??''),'retryable:')===0;
             if ($existingStatus==='authorized'&&!$retryable) Http::json(['ok'=>false,'error'=>'This charge is still being processed. Contact support before trying again.'],409);
             if ($retryable) {
                 $pdo->prepare("UPDATE payment_transactions SET provider_reference=NULL WHERE user_id=? AND provider='ideamart' AND external_reference=? AND status='authorized'")->execute([$user['id'],$external]);
@@ -370,7 +370,7 @@ final class ApiController {
                 : ($statusCode==='E1378'?'Your mobile account has insufficient balance. Please top it up and try again.':null);
             Http::json(['ok'=>$success,'status_code'=>$statusCode,'external_reference'=>$external]+($errorMessage!==null?['error'=>$errorMessage]:[]),$success?200:($transient?503:502));
         } catch (\Throwable $error) {
-            $transportRetryable=str_starts_with($error->getMessage(),'Ideamart request failed:');
+            $transportRetryable=strpos($error->getMessage(),'Ideamart request failed:')===0;
             if (isset($pdo,$external)) $pdo->prepare("UPDATE payment_transactions SET status=?,provider_reference=? WHERE user_id=? AND provider='ideamart' AND external_reference=? AND status='authorized'")->execute([$transportRetryable?'authorized':'failed',$transportRetryable?'retryable:transport':null,$user['id'],$external]);
             error_log('Ideamart CAAS direct debit transport failure: '.$error->getMessage());
             Http::json(['ok'=>false,'error'=>$transportRetryable?'IdeaMart charging is temporarily unavailable. Please retry shortly.':'Charging service is temporarily unavailable.'],503);
