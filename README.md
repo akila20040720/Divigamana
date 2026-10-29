@@ -31,7 +31,9 @@ subscription, or payment record is saved. Set it back to `false` before producti
 The application uses the configured Ideamart OTP request/verify, subscription register and
 unregister/status/base, and CAAS balance/direct-debit endpoints. Configure
 `https://divigamana.lk/api.php?action=ideamart-subscription-notification` as the IdeaMart
-Subscription Notification URL, then run
+Subscription Notification URL and
+`https://divigamana.lk/api.php?action=ideamart-charge-notification` as the Charging
+Notification URL, then run
 [`database/migration_ideamart_subscription_sync.sql`](database/migration_ideamart_subscription_sync.sql)
 once on existing databases. It records carrier subscription state changes so the admin
 dashboard reflects current provider details. If IdeaMart provisioned a specific CaaS payment

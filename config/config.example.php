@@ -3,8 +3,6 @@
 // Qwen keys are region-specific. Replace {WORKSPACE_ID} with your Model Studio workspace ID.
 return [
     'app_env' => getenv('APP_ENV') ?: 'production',
-    // Never enable demo OTP on a public deployment.
-    'demo_otp_enabled' => filter_var(getenv('DEMO_OTP_ENABLED') ?: 'false', FILTER_VALIDATE_BOOLEAN),
     'skip_database_check' => filter_var(getenv('SKIP_DATABASE_CHECK') ?: 'false', FILTER_VALIDATE_BOOLEAN),
     'mspace_live' => filter_var(getenv('MSPACE_LIVE') ?: 'false', FILTER_VALIDATE_BOOLEAN),
     'mspace_caas_live' => filter_var(getenv('MSPACE_CAAS_LIVE') ?: 'false', FILTER_VALIDATE_BOOLEAN),

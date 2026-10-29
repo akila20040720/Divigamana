@@ -4,7 +4,6 @@
 return [
     'app_env' => getenv('APP_ENV') ?: 'production',
     // Temporary template setting: any six-digit OTP is accepted until SMS is connected.
-    'demo_otp_enabled' => false,
     'skip_database_check' => filter_var(getenv('SKIP_DATABASE_CHECK') ?: 'false', FILTER_VALIDATE_BOOLEAN),
     'mspace_live' => filter_var(getenv('MSPACE_LIVE') ?: 'false', FILTER_VALIDATE_BOOLEAN),
     'mspace_caas_live' => filter_var(getenv('MSPACE_CAAS_LIVE') ?: 'false', FILTER_VALIDATE_BOOLEAN),

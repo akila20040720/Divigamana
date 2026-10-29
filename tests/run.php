@@ -28,7 +28,7 @@ foreach (ApiRoutes::all() as $action=>$route) {
     $method=$route['method'];
     $result=apiCase($action,$method);
     if ($method==='GET') check($result['status']===200&&is_array($result['body'])&&($result['body']['ok']??false)===true,"$method $action responds safely");
-    elseif ($action==='ideamart-subscription-notification') check($result['status']===200&&($result['body']['statusCode']??'')==='S1000',"$method $action safely acknowledges an invalid carrier callback");
+    elseif (in_array($action,['ideamart-subscription-notification','ideamart-charge-notification'],true)) check($result['status']===200&&($result['body']['statusCode']??'')==='S1000',"$method $action safely acknowledges an invalid carrier callback");
     else check($result['status']===419&&($result['body']['ok']??true)===false,"$method $action rejects missing CSRF");
     $wrong=apiCase($action,$method==='GET'?'POST':'GET');
     check($wrong['status']===405,"$action rejects the wrong HTTP method");

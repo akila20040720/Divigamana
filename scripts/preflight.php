@@ -19,7 +19,6 @@ function httpsUrl(mixed $value): bool { return filter_var($value,FILTER_VALIDATE
 result(version_compare(PHP_VERSION,'8.1.0','>=')?'PASS':'FAIL','PHP 8.1 or newer',PHP_VERSION);
 foreach (['pdo_mysql','curl','mbstring','openssl','json'] as $extension) result(extension_loaded($extension)?'PASS':'FAIL','PHP extension '.$extension);
 result((APP_CONFIG['app_env']??'')==='production'?'PASS':'WARN','APP_ENV is production',(string)(APP_CONFIG['app_env']??''));
-result(empty(APP_CONFIG['demo_otp_enabled'])?'PASS':'FAIL','Demo OTP is disabled');
 result(empty(APP_CONFIG['skip_database_check'])?'PASS':'FAIL','Database bypass is disabled');
 result(httpsUrl(APP_CONFIG['app_url']??'')?'PASS':'FAIL','APP_URL uses HTTPS',(string)(APP_CONFIG['app_url']??''));
 $admin=APP_CONFIG['admin']??[];
