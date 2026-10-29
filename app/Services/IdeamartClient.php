@@ -72,6 +72,10 @@ final class IdeamartClient
     }
 
     public static function successful(array $response,array $benign=[]): bool { return in_array((string)($response['statusCode']??''),array_merge(['S1000'],$benign),true); }
+    public static function transientFailure(array $response): bool
+    {
+        return in_array((string)($response['statusCode']??''),['E1600','E1601','E1602','E1603'],true);
+    }
     public static function diagnostic(array $response): string
     {
         $code=(string)($response['statusCode']??'UNKNOWN'); $detail=trim((string)($response['statusDetail']??''));

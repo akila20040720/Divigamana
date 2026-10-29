@@ -335,32 +335,41 @@ final class ApiController {
             if (!preg_match('/^[a-zA-Z0-9-]{16,100}$/',$key)) Http::json(['ok'=>false,'error'=>'Invalid request identifier.'],422);
             $external='divigamana-'.substr(hash('sha256',(string)$user['id'].'|'.$key),0,20);
             $pdo=Database::pdo();
-            $existing=$pdo->prepare("SELECT status FROM payment_transactions WHERE user_id=? AND provider='ideamart' AND external_reference=? LIMIT 1");
+            $existing=$pdo->prepare("SELECT status,provider_reference FROM payment_transactions WHERE user_id=? AND provider='ideamart' AND external_reference=? LIMIT 1");
             $existing->execute([$user['id'],$external]);
-            $existingStatus=$existing->fetchColumn();
+            $existingRow=$existing->fetch(\PDO::FETCH_ASSOC) ?: [];
+            $existingStatus=(string)($existingRow['status']??'');
             if ($existingStatus==='paid') {
                 $_SESSION['caas_paid_reference']=$external;
                 $_SESSION['caas_paid_service']=$service['slug'];
                 Http::json(['ok'=>true,'charge'=>['statusCode'=>'E1379','externalTrxId'=>$external],'external_reference'=>$external,'cached'=>true]);
             }
-            if ($existingStatus==='authorized') Http::json(['ok'=>false,'error'=>'This charge is already in progress; do not retry it with a new identifier.'],409);
-            $pdo->prepare("INSERT INTO payment_transactions (user_id,amount,currency,status,is_simulated,provider,external_reference,description) VALUES (?,?,'LKR','authorized',0,'ideamart',?,?)")->execute([$user['id'],$amount,$external,'IdeaMart CAAS '.$service['slug'].' charge']);
+            $retryable=$existingStatus==='authorized'&&str_starts_with((string)($existingRow['provider_reference']??''),'retryable:');
+            if ($existingStatus==='authorized'&&!$retryable) Http::json(['ok'=>false,'error'=>'This charge is still being processed. Contact support before trying again.'],409);
+            if ($retryable) {
+                $pdo->prepare("UPDATE payment_transactions SET provider_reference=NULL WHERE user_id=? AND provider='ideamart' AND external_reference=? AND status='authorized'")->execute([$user['id'],$external]);
+            } else {
+                $pdo->prepare("INSERT INTO payment_transactions (user_id,amount,currency,status,is_simulated,provider,external_reference,description) VALUES (?,?,'LKR','authorized',0,'ideamart',?,?)")->execute([$user['id'],$amount,$external,'IdeaMart CAAS '.$service['slug'].' charge']);
+            }
             $consent='I authorize a one-time LKR '.$amount.' mobile-account charge for the '.$service['slug'].' reading.';
             $ipHash=hash('sha256',(string)($_SERVER['REMOTE_ADDR']??''));
             $pdo->prepare("INSERT INTO consent_history (user_id,consent_type,consent_text,locale,ip_hash) VALUES (?,'ideamart_caas_charge',?,?,?)")->execute([$user['id'],$consent,(string)($input['locale']??'si-LK'),$ipHash]);
             $response=(new IdeamartClient())->charge($user['ideamart_subscriber_id'],$external,$amount);
             $success=IdeamartClient::successful($response,['E1379']);
-            $pdo->prepare("UPDATE payment_transactions SET status=?,provider_reference=? WHERE user_id=? AND provider='ideamart' AND external_reference=?")->execute([$success?'paid':'failed',(string)($response['internalTrxId']??''),$user['id'],$external]);
+            $transient=IdeamartClient::transientFailure($response);
+            $providerReference=$transient?'retryable:'.(string)$response['statusCode']:(string)($response['internalTrxId']??'');
+            $pdo->prepare("UPDATE payment_transactions SET status=?,provider_reference=? WHERE user_id=? AND provider='ideamart' AND external_reference=?")->execute([$success?'paid':($transient?'authorized':'failed'),$providerReference,$user['id'],$external]);
             if (!$success) error_log('Ideamart CAAS direct debit rejected: '.IdeamartClient::diagnostic($response));
             if ($success) {
                 $_SESSION['caas_paid_reference']=$external;
                 $_SESSION['caas_paid_service']=$service['slug'];
             }
-            Http::json(['ok'=>$success,'status_code'=>(string)($response['statusCode']??'UNKNOWN'),'external_reference'=>$external],$success?200:502);
+            Http::json(['ok'=>$success,'status_code'=>(string)($response['statusCode']??'UNKNOWN'),'external_reference'=>$external]+($transient?['error'=>'IdeaMart charging is temporarily unavailable. Please retry shortly.']:[]),$success?200:($transient?503:502));
         } catch (\Throwable $error) {
-            if (isset($pdo,$external)) $pdo->prepare("UPDATE payment_transactions SET status='failed' WHERE user_id=? AND provider='ideamart' AND external_reference=? AND status='authorized'")->execute([$user['id'],$external]);
+            $transportRetryable=str_starts_with($error->getMessage(),'Ideamart request failed:');
+            if (isset($pdo,$external)) $pdo->prepare("UPDATE payment_transactions SET status=?,provider_reference=? WHERE user_id=? AND provider='ideamart' AND external_reference=? AND status='authorized'")->execute([$transportRetryable?'authorized':'failed',$transportRetryable?'retryable:transport':null,$user['id'],$external]);
             error_log('Ideamart CAAS direct debit transport failure: '.$error->getMessage());
-            Http::json(['ok'=>false,'error'=>'Charging service is temporarily unavailable.'],503);
+            Http::json(['ok'=>false,'error'=>$transportRetryable?'IdeaMart charging is temporarily unavailable. Please retry shortly.':'Charging service is temporarily unavailable.'],503);
         }
     }
     public static function mspaceChargeOtp(): void {
