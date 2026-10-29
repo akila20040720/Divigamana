@@ -364,7 +364,11 @@ final class ApiController {
                 $_SESSION['caas_paid_reference']=$external;
                 $_SESSION['caas_paid_service']=$service['slug'];
             }
-            Http::json(['ok'=>$success,'status_code'=>(string)($response['statusCode']??'UNKNOWN'),'external_reference'=>$external]+($transient?['error'=>'IdeaMart charging is temporarily unavailable. Please retry shortly.']:[]),$success?200:($transient?503:502));
+            $statusCode=(string)($response['statusCode']??'UNKNOWN');
+            $errorMessage=$transient
+                ? 'IdeaMart charging is temporarily unavailable. Please retry shortly.'
+                : ($statusCode==='E1378'?'Your mobile account has insufficient balance. Please top it up and try again.':null);
+            Http::json(['ok'=>$success,'status_code'=>$statusCode,'external_reference'=>$external]+($errorMessage!==null?['error'=>$errorMessage]:[]),$success?200:($transient?503:502));
         } catch (\Throwable $error) {
             $transportRetryable=str_starts_with($error->getMessage(),'Ideamart request failed:');
             if (isset($pdo,$external)) $pdo->prepare("UPDATE payment_transactions SET status=?,provider_reference=? WHERE user_id=? AND provider='ideamart' AND external_reference=? AND status='authorized'")->execute([$transportRetryable?'authorized':'failed',$transportRetryable?'retryable:transport':null,$user['id'],$external]);
