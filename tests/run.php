@@ -28,6 +28,7 @@ foreach (ApiRoutes::all() as $action=>$route) {
     $method=$route['method'];
     $result=apiCase($action,$method);
     if ($method==='GET') check($result['status']===200&&is_array($result['body'])&&($result['body']['ok']??false)===true,"$method $action responds safely");
+    elseif ($action==='ideamart-subscription-notification') check($result['status']===200&&($result['body']['statusCode']??'')==='S1000',"$method $action safely acknowledges an invalid carrier callback");
     else check($result['status']===419&&($result['body']['ok']??true)===false,"$method $action rejects missing CSRF");
     $wrong=apiCase($action,$method==='GET'?'POST':'GET');
     check($wrong['status']===405,"$action rejects the wrong HTTP method");
@@ -53,10 +54,14 @@ $ideamart->subscribe('tel:masked-test'); $ideamart->unsubscribe('tel:masked-test
 $ideamart->subscriptionStatus('tel:masked-test'); $ideamart->subscriptionBase(); $ideamart->balance('tel:masked-test');
 $ideamart->charge('tel:masked-test','divigamana-contract-test','20.00');
 check(($ideamartRequests['caas_debit_url']['body']['paymentInstrument']??'')==='MobileAccount','Ideamart debit payload uses MobileAccount');
+check(!isset($ideamartRequests['caas_debit_url']['body']['accountId']),'Ideamart debit omits an unprovisioned account ID');
 check(($ideamartRequests['caas_debit_url']['body']['externalTrxId']??'')==='divigamana-contract-test','Ideamart debit preserves its idempotency key');
 check(($ideamartRequests['otp_request_url']['body']['applicationHash']??'')==='contract-test-hash','Ideamart OTP request carries an application hash');
 $blocked=false; try { (new IdeamartClient($ideamartConfig,$fakeIdeamart,true,false))->charge('tel:test','safe-id','20.00'); } catch (Throwable) { $blocked=true; }
 check($blocked,'Ideamart debit is blocked when its CAAS switch is off');
+$ideamartWithAccount=new IdeamartClient($ideamartConfig+['caas_account_id'=>'merchant-account'],$fakeIdeamart,true,true);
+$ideamartWithAccount->charge('tel:masked-test','divigamana-account-test','20.00');
+check(($ideamartRequests['caas_debit_url']['body']['accountId']??'')==='merchant-account','Ideamart debit carries a provisioned account ID');
 
 $mspaceRequests=[];
 $fakeMspace=static function(string $key,string $url,array $body) use (&$mspaceRequests): array {

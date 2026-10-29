@@ -51,16 +51,25 @@ final class IdeamartClient
     public function charge(string $subscriberId,string $externalTrxId,string $amount): array
     {
         self::requireSubscriber($subscriberId); self::requireCharge($externalTrxId,$amount);
-        return $this->call('caas_debit_url',[
+        $payload=[
             'externalTrxId'=>$externalTrxId,
             'subscriberId'=>$subscriberId,
-            'paymentInstrument'=>'MobileAccount',
+            'paymentInstrument'=>trim((string)($this->config['caas_payment_instrument']??'MobileAccount')),
             'amount'=>$amount,
             'currency'=>'LKR',
-        ],true);
+        ];
+        $accountId=trim((string)($this->config['caas_account_id']??''));
+        if ($accountId!=='') $payload['accountId']=$accountId;
+        return $this->call('caas_debit_url',$payload,true);
     }
 
-    public function balance(string $subscriberId): array { self::requireSubscriber($subscriberId); return $this->call('caas_balance_url',['subscriberId'=>$subscriberId,'currency'=>'LKR']); }
+    public function balance(string $subscriberId): array {
+        self::requireSubscriber($subscriberId);
+        $payload=['subscriberId'=>$subscriberId,'currency'=>'LKR'];
+        $accountId=trim((string)($this->config['caas_account_id']??''));
+        if ($accountId!=='') $payload['accountId']=$accountId;
+        return $this->call('caas_balance_url',$payload);
+    }
 
     public static function successful(array $response,array $benign=[]): bool { return in_array((string)($response['statusCode']??''),array_merge(['S1000'],$benign),true); }
     public static function diagnostic(array $response): string

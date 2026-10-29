@@ -47,7 +47,7 @@ try {
     $pdo->query('SELECT 1');
     result('PASS','Database connection');
     $database=(string)(APP_CONFIG['db']['name']??'');
-    $required=['users'=>['account_status','last_login_at','ideamart_subscriber_id'],'payment_transactions'=>['provider','external_reference','provider_reference']];
+    $required=['users'=>['account_status','last_login_at','ideamart_subscriber_id'],'user_subscriptions'=>['provider','provider_status','frequency','notified_at'],'payment_transactions'=>['provider','external_reference','provider_reference']];
     foreach ($required as $table=>$columns) foreach ($columns as $column) {
         $st=$pdo->prepare('SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=? AND TABLE_NAME=? AND COLUMN_NAME=?');
         $st->execute([$database,$table,$column]);

@@ -36,6 +36,36 @@ final class ApiController {
         $amounts=array_values(array_unique(array_map(static fn(array $service): string=>$service['price_lkr'],array_filter(ServiceCatalog::all(),static fn(array $service): bool=>$service['paid']))));
         return in_array($amount,$amounts,true);
     }
+    private static function subscriptionState(string $providerStatus): string {
+        return match (strtoupper(trim($providerStatus))) {
+            'REGISTERED' => 'active',
+            'PENDING', 'PENDING CHARGE', 'CHARGE' => 'pending',
+            'UNREGISTERED' => 'cancelled',
+            default => 'inactive',
+        };
+    }
+    private static function subscriptionEndSql(string $frequency): string {
+        return match (strtolower(trim($frequency))) {
+            'weekly', 'week' => 'DATE_ADD(NOW(),INTERVAL 7 DAY)',
+            'monthly', 'month' => 'DATE_ADD(NOW(),INTERVAL 1 MONTH)',
+            'yearly', 'year', 'annual' => 'DATE_ADD(NOW(),INTERVAL 1 YEAR)',
+            default => 'DATE_ADD(NOW(),INTERVAL 1 DAY)',
+        };
+    }
+    private static function saveIdeamartSubscription($pdo,int $userId,string $providerStatus,string $frequency='',?string $notifiedAt=null): void {
+        $status=self::subscriptionState($providerStatus);
+        $endsAt=$status==='active'?self::subscriptionEndSql($frequency):'NOW()';
+        // IdeaMart does not send a notification ID. Updating the newest matching row
+        // makes repeated callback deliveries idempotent while retaining prior periods.
+        $existing=$pdo->prepare("SELECT id FROM user_subscriptions WHERE user_id=? AND provider='ideamart' AND provider_status=? ORDER BY id DESC LIMIT 1");
+        $existing->execute([$userId,strtoupper(trim($providerStatus))]);
+        $id=$existing->fetchColumn();
+        if ($id) {
+            $pdo->prepare("UPDATE user_subscriptions SET status=?,is_simulated=0,frequency=?,notified_at=COALESCE(?,NOW()),starts_at=IF(?='active',NOW(),starts_at),ends_at=$endsAt WHERE id=?")->execute([$status,$frequency,$notifiedAt,$status,$id]);
+            return;
+        }
+        $pdo->prepare("INSERT INTO user_subscriptions (user_id,status,is_simulated,provider,provider_status,frequency,accepted_at,starts_at,ends_at,notified_at) VALUES (?,?,0,'ideamart',?,?,NOW(),NOW(),$endsAt,COALESCE(?,NOW()))")->execute([$userId,$status,strtoupper(trim($providerStatus)),$frequency,$notifiedAt]);
+    }
     private static function cleanAnswer(string $value): string {
         $value=strip_tags($value);
         return function_exists('mb_substr') ? mb_substr($value,0,2500) : substr($value,0,2500);
@@ -163,7 +193,8 @@ final class ApiController {
             if (!$user) {
                 $pdo->prepare("INSERT INTO users (mobile_e164,ideamart_subscriber_id,otp_verified_demo,phone_verified_real,role) VALUES (?,?,?,?,'user')")->execute([$mobile,$subscriberId,$subscriberId?0:1,$subscriberId?1:0]);
                 $id=(int)$pdo->lastInsertId();
-                $pdo->prepare("INSERT INTO user_subscriptions (user_id,status,is_simulated,accepted_at,starts_at,ends_at) VALUES (?,'active',?,NOW(),NOW(),DATE_ADD(NOW(),INTERVAL 1 DAY))")->execute([$id,$subscriberId?0:1]);
+                if ($subscriberId) self::saveIdeamartSubscription($pdo,$id,(string)($subscription['subscriptionStatus']??'PENDING'));
+                else $pdo->prepare("INSERT INTO user_subscriptions (user_id,status,is_simulated,accepted_at,starts_at,ends_at) VALUES (?,'active',1,NOW(),NOW(),DATE_ADD(NOW(),INTERVAL 1 DAY))")->execute([$id]);
                 $consentText=$subscriberId?'I consented to the Ideamart subscription after reviewing the applicable service terms.':'Daily Rs. 8.00 + Tax simulated development subscription';
                 $pdo->prepare("INSERT INTO consent_history (user_id,consent_type,consent_text,locale) VALUES (?,'subscription',?,?)")->execute([$id,$consentText,$input['locale']??'si-LK']);
                 $user=['id'=>$id,'mobile_e164'=>$mobile,'role'=>'user'];
@@ -221,7 +252,7 @@ final class ApiController {
             if (!IdeamartClient::successful($response,['E1351'])) Http::json(['ok'=>false,'error'=>'Subscription could not be activated.'],502);
             $pdo=Database::pdo();
             $pdo->prepare("INSERT INTO consent_history (user_id,consent_type,consent_text,locale) VALUES (?,'ideamart_subscription',?,?)")->execute([$user['id'],'I consent to the disclosed subscription terms and charges.',(string)($input['locale']??'si-LK')]);
-            $pdo->prepare("INSERT INTO user_subscriptions (user_id,status,is_simulated,accepted_at,starts_at,ends_at) VALUES (?,'active',0,NOW(),NOW(),DATE_ADD(NOW(),INTERVAL 1 DAY))")->execute([$user['id']]);
+            self::saveIdeamartSubscription($pdo,(int)$user['id'],(string)($response['subscriptionStatus']??'PENDING'));
             Http::json(['ok'=>true,'subscription'=>$response]);
         } catch (\Throwable $error) { error_log('Ideamart subscribe failed: '.$error->getMessage()); Http::json(['ok'=>false,'error'=>'Subscription service is temporarily unavailable.'],503); }
     }
@@ -246,6 +277,33 @@ final class ApiController {
         if (!isset($_SESSION['admin_fingerprint'])||!hash_equals($fingerprint,(string)$_SESSION['admin_fingerprint'])) Http::json(['ok'=>false,'error'=>'Administrator access required.'],403);
         try { $response=(new IdeamartClient())->subscriptionBase(); Http::json(['ok'=>IdeamartClient::successful($response),'base'=>$response]); }
         catch (\Throwable $error) { error_log('Ideamart base query failed: '.$error->getMessage()); Http::json(['ok'=>false,'error'=>'Subscription service is temporarily unavailable.'],503); }
+    }
+    public static function ideamartSubscriptionNotification(): void {
+        // Carrier callbacks cannot carry a browser CSRF token. Authenticate by the
+        // provisioned application ID and always acknowledge promptly to prevent retries.
+        $input=Http::input();
+        $expected=(string)(APP_CONFIG['ideamart']['application_id']??'');
+        $applicationId=(string)($input['applicationId']??'');
+        $subscriberId=trim((string)($input['subscriberId']??''));
+        $providerStatus=strtoupper(trim((string)($input['status']??'')));
+        if ($expected===''||!hash_equals($expected,$applicationId)||$subscriberId===''||!in_array($providerStatus,['REGISTERED','UNREGISTERED','PENDING','PENDING CHARGE','CHARGE'],true)) {
+            error_log('IdeaMart subscription callback rejected.');
+            Http::json(['statusCode'=>'S1000']);
+        }
+        try {
+            $pdo=Database::pdo();
+            $find=$pdo->prepare('SELECT id FROM users WHERE ideamart_subscriber_id=? LIMIT 1');
+            $find->execute([$subscriberId]);
+            $userId=(int)$find->fetchColumn();
+            if ($userId>0) {
+                self::saveIdeamartSubscription($pdo,$userId,$providerStatus,substr((string)($input['frequency']??''),0,60),substr((string)($input['timeStamp']??''),0,40));
+            } else {
+                error_log('IdeaMart subscription callback has no matching verified user.');
+            }
+        } catch (\Throwable $error) {
+            error_log('IdeaMart subscription callback database failure: '.$error->getMessage());
+        }
+        Http::json(['statusCode'=>'S1000']);
     }
     public static function caasBalance(): void {
         $input=Http::input(); Http::requirePostCsrf($input);

@@ -17,6 +17,8 @@ final class ApiRoutes
             'unsubscribe' => ['method'=>'POST', 'handler'=>[ApiController::class,'unsubscribe']],
             'subscription-status' => ['method'=>'POST', 'handler'=>[ApiController::class,'ideamartSubscriptionStatus']],
             'subscription-base' => ['method'=>'POST', 'handler'=>[ApiController::class,'subscriptionBase']],
+            // Configure this as the IdeaMart Subscription Notification URL.
+            'ideamart-subscription-notification' => ['method'=>'POST', 'handler'=>[ApiController::class,'ideamartSubscriptionNotification']],
             'caas-balance' => ['method'=>'POST', 'handler'=>[ApiController::class,'caasBalance']],
             'caas-charge' => ['method'=>'POST', 'handler'=>[ApiController::class,'caasCharge']],
             'mspace-charge-otp' => ['method'=>'POST', 'handler'=>[ApiController::class,'mspaceChargeOtp']],

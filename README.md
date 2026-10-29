@@ -29,7 +29,13 @@ Ideamart registration can complete, but the session is temporary and no user, co
 subscription, or payment record is saved. Set it back to `false` before production use.
 
 The application uses the configured Ideamart OTP request/verify, subscription register and
-unregister/status/base, and CAAS balance/direct-debit endpoints. Paid readings use the
+unregister/status/base, and CAAS balance/direct-debit endpoints. Configure
+`https://divigamana.lk/api.php?action=ideamart-subscription-notification` as the IdeaMart
+Subscription Notification URL, then run
+[`database/migration_ideamart_subscription_sync.sql`](database/migration_ideamart_subscription_sync.sql)
+once on existing databases. It records carrier subscription state changes so the admin
+dashboard reflects current provider details. If IdeaMart provisioned a specific CaaS payment
+account, set `IDEAMART_CAAS_ACCOUNT_ID`; otherwise leave it blank. Paid readings use the
 server-side `ServiceCatalog` price map; `name-reading` is `0.00` and remains free. Every
 paid debit creates and stores its `externalTrxId` before the request and treats `E1379` as
 an idempotent success. Run `database/migration_ideamart.sql` on databases created before
