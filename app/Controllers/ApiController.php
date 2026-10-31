@@ -134,6 +134,13 @@ final class ApiController {
                     error_log('Ideamart OTP request rejected: '.IdeamartClient::diagnostic($response));
                     Http::json(['ok'=>false,'error'=>'Could not send the verification code. Please try again.'],502);
                 }
+                // Track the signup attempt after IdeaMart confirms it sent the OTP.
+                // The dashboard uses this pending row until phone verification succeeds.
+                try {
+                    Database::pdo()->prepare("INSERT IGNORE INTO users (mobile_e164,role) VALUES (?,'user')")->execute([$mobile]);
+                } catch (\Throwable $error) {
+                    error_log('Pending mobile registration tracking failed: '.$error->getMessage());
+                }
                 $_SESSION['otp_reference']=$response['referenceNo']??null;
                 $_SESSION['otp_mobile']=$mobile;
                 $_SESSION['otp_attempts']=0;
