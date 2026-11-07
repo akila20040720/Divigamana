@@ -126,10 +126,10 @@ final class ApiController {
         if ($ideamart->enabled()) {
             try {
                 $response=$ideamart->otpRequest('tel:'.substr($mobile,1), [
-                    'client'=>'WebSite',
-                    'device'=>substr((string)($_SERVER['HTTP_USER_AGENT']??'Web browser'),0,120),
-                    'os'=>'Web',
-                    'appCode'=>(string)(APP_CONFIG['app_url']??'https://divigamana.lk'),
+                    'client'=>'MOBILEAPP',
+                    'device'=>'Postman',
+                    'os'=>'Windows',
+                    'appCode'=>'http://localhost:3000/',
                 ],self::uuid4());
                 if (($response['statusCode']??'')==='E1351') {
                     unset($_SESSION['rate'][$rateKey]);
