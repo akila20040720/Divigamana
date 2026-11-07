@@ -10,6 +10,7 @@ the browser or a committed config file):
 ```text
 IDEAMART_APP_ID=
 IDEAMART_PASSWORD=
+IDEAMART_CAAS_CALLBACK_TOKEN=
 ```
 
 Copy `.env.example` to the server's private `.env`, fill in the credentials, and set
@@ -28,20 +29,30 @@ For a temporary local outage workaround only, set `SKIP_DATABASE_CHECK=true`. OT
 Ideamart registration can complete, but the session is temporary and no user, consent,
 subscription, or payment record is saved. Set it back to `false` before production use.
 
-The application uses the configured Ideamart OTP request/verify, subscription register and
-unregister/status/base, and CAAS balance/direct-debit endpoints. Configure
+OTP verification returns the masked subscriber ID and subscription state; the application
+stores these and avoids sending a duplicate opt-in request. Subscription notifications
+update the local state used by the app. Configure
 `https://divigamana.lk/api.php?action=ideamart-subscription-notification` as the IdeaMart
-Subscription Notification URL and
-`https://divigamana.lk/api.php?action=ideamart-charge-notification` as the Charging
-Notification URL, then run
+Subscription Notification URL. Set a long random `IDEAMART_CAAS_CALLBACK_TOKEN` in the
+private server environment and configure the Charging Notification URL with that same
+token, for example:
+`https://divigamana.lk/api.php?action=ideamart-charge-notification&token=YOUR_RANDOM_TOKEN`.
+The charging callback verifies its token, subscriber, amount, and currency before updating
+a payment record. Then run
 [`database/migration_ideamart_subscription_sync.sql`](database/migration_ideamart_subscription_sync.sql)
 once on existing databases. It records carrier subscription state changes so the admin
 dashboard reflects current provider details. If IdeaMart provisioned a specific CaaS payment
 account, set `IDEAMART_CAAS_ACCOUNT_ID`; otherwise leave it blank. Paid readings use the
-server-side `ServiceCatalog` price map; `name-reading` is `0.00` and remains free. Every
+server-side `ServiceCatalog` price map (LKR 20.00 for paid readings; `name-reading` is `0.00`
+and remains free). Every
 paid debit creates and stores its `externalTrxId` before the request and treats `E1379` as
 an idempotent success. Run `database/migration_ideamart.sql` on databases created before
 the Ideamart integration.
+
+IdeaMart's registration OTP endpoint returns `E1351` for an already-registered subscriber;
+that response does not prove the person currently holds the phone. The application therefore
+does not log in an existing account from `E1351`. A separate existing-account authentication
+method is required for returning users.
 
 ## mSpace Mobitel TAP
 
@@ -69,6 +80,10 @@ Before using the expanded user management dashboard on an existing database, run
 [`database/migration_admin_dashboard.sql`](database/migration_admin_dashboard.sql) once
 in phpMyAdmin. It adds account blocking and last-login audit fields; new installations
 receive them automatically from `database/schema.sql`.
+
+For existing databases, also run [`database/migration_dashboard_analytics.sql`](database/migration_dashboard_analytics.sql)
+once to add indexes for paginated user cohorts and date-scoped carrier payment and
+subscription reports. New installations receive these indexes from `database/schema.sql`.
 
 Before enabling either CAAS switch on an existing database, also run
 [`database/migration_production_hardening.sql`](database/migration_production_hardening.sql).

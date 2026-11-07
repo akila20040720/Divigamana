@@ -12,6 +12,10 @@ final class Database {
         $user=trim((string)($c['user']??''));
         $pass=rtrim((string)($c['pass']??''));
         $dsn="mysql:host=$host;port=$port;dbname=$name;charset=utf8mb4";
-        return self::$pdo = new PDO($dsn, $user, $pass, [PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION, PDO::ATTR_DEFAULT_FETCH_MODE=>PDO::FETCH_ASSOC, PDO::ATTR_EMULATE_PREPARES=>false]);
+        $pdo=new PDO($dsn, $user, $pass, [PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION, PDO::ATTR_DEFAULT_FETCH_MODE=>PDO::FETCH_ASSOC, PDO::ATTR_EMULATE_PREPARES=>false]);
+        // Keep MySQL date functions and DATETIME defaults aligned with the app's
+        // Asia/Colombo reporting and OTP/subscription timestamps.
+        $pdo->exec("SET time_zone = '+05:30'");
+        return self::$pdo=$pdo;
     }
 }
