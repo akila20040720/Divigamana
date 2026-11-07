@@ -460,7 +460,7 @@ final class ApiController {
                     Http::json(['ok'=>false,'retain_key'=>$existingStatus==='authorized','error'=>'IdeaMart subscription status could not be confirmed. Please try again shortly.'],503);
                 }
             }
-            if (!$hasActiveSubscription) Http::json(['ok'=>false,'retain_key'=>$existingStatus==='authorized','error'=>'An active IdeaMart subscription is required before a carrier charge can be submitted.'],409);
+            if (!$hasActiveSubscription) Http::json(['ok'=>false,'requires_subscription'=>true,'retain_key'=>$existingStatus==='authorized','error'=>'An active IdeaMart subscription is required before a carrier charge can be submitted.'],409);
             if ($retryable) {
                 $pdo->prepare("UPDATE payment_transactions SET provider_reference=NULL WHERE user_id=? AND provider='ideamart' AND external_reference=? AND status='authorized'")->execute([$user['id'],$external]);
             } else {
