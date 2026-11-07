@@ -58,12 +58,13 @@ final class ApiController {
     }
     private static function saveIdeamartSubscription($pdo,int $userId,string $providerStatus,string $frequency='',?string $notifiedAt=null): void {
         $status=self::subscriptionState($providerStatus);
-        // IdeaMart does not send a notification ID. Updating the newest matching row
-        // makes repeated callback deliveries idempotent while retaining prior periods.
-        $existing=$pdo->prepare("SELECT id,frequency FROM user_subscriptions WHERE user_id=? AND provider='ideamart' AND provider_status=? ORDER BY id DESC LIMIT 1");
-        $existing->execute([$userId,strtoupper(trim($providerStatus))]);
+        // IdeaMart does not send a notification ID. Update only the latest row when
+        // a callback repeats the current state; a state change gets a new history row.
+        $normalizedProviderStatus=strtoupper(trim($providerStatus));
+        $existing=$pdo->prepare("SELECT id,frequency,provider_status FROM user_subscriptions WHERE user_id=? AND provider='ideamart' ORDER BY id DESC LIMIT 1");
+        $existing->execute([$userId]);
         $row=$existing->fetch(\PDO::FETCH_ASSOC);
-        if ($row) {
+        if ($row&&strtoupper((string)$row['provider_status'])===$normalizedProviderStatus) {
             $effectiveFrequency=$frequency!==''?$frequency:(string)($row['frequency']??'');
             $endsAt=$status==='active'?self::subscriptionEndSql($effectiveFrequency):'NOW()';
             $pdo->prepare("UPDATE user_subscriptions SET status=?,is_simulated=0,frequency=?,notified_at=COALESCE(?,notified_at,NOW()),starts_at=IF(?='active',NOW(),starts_at),ends_at=$endsAt WHERE id=?")->execute([$status,$effectiveFrequency,$notifiedAt,$status,$row['id']]);
@@ -195,6 +196,26 @@ final class ApiController {
                     $subscriptionStatus=strtoupper(trim((string)($statusResponse['subscriptionStatus']??'')));
                 }
                 if ($subscriptionStatus==='') Http::json(['ok'=>false,'error'=>'IdeaMart returned no subscription status after mobile verification.'],502);
+                // The OTP modal records explicit subscription consent. If IdeaMart
+                // reports the verified subscriber as UNREGISTERED, complete the
+                // opt-in here; CaaS is configured to require an active subscription.
+                if ($subscriptionStatus==='UNREGISTERED') {
+                    $subscribeResponse=$ideamart->subscribe($subscriberId);
+                    if (!IdeamartClient::successful($subscribeResponse,['E1351'])) {
+                        error_log('Ideamart subscription opt-in rejected: '.IdeamartClient::diagnostic($subscribeResponse));
+                        Http::json(['ok'=>false,'error'=>'Mobile verification succeeded, but the IdeaMart subscription could not be activated. Please try again later.'],502);
+                    }
+                    $subscriptionStatus=strtoupper(trim((string)($subscribeResponse['subscriptionStatus']??'')));
+                    if ($subscriptionStatus===''||($subscribeResponse['statusCode']??'')==='E1351') {
+                        $statusResponse=$ideamart->subscriptionStatus($subscriberId);
+                        if (!IdeamartClient::successful($statusResponse)) {
+                            error_log('Ideamart status after subscription opt-in failed: '.IdeamartClient::diagnostic($statusResponse));
+                            Http::json(['ok'=>false,'error'=>'Mobile verification succeeded, but the IdeaMart subscription status is still being confirmed. Please try again later.'],503);
+                        }
+                        $subscriptionStatus=strtoupper(trim((string)($statusResponse['subscriptionStatus']??'')));
+                    }
+                    if ($subscriptionStatus==='') Http::json(['ok'=>false,'error'=>'IdeaMart returned no subscription status after opt-in. Please try again later.'],502);
+                }
             } catch (\Throwable $error) {
                 error_log('Ideamart OTP verification failed: '.$error->getMessage());
                 Http::json(['ok'=>false,'error'=>'OTP service is temporarily unavailable.'],503);
@@ -420,9 +441,26 @@ final class ApiController {
             }
             $retryable=$existingStatus==='authorized'&&strpos((string)($existingRow['provider_reference']??''),'retryable:')===0;
             if ($existingStatus==='authorized'&&!$retryable) Http::json(['ok'=>false,'retain_key'=>true,'error'=>'This charge is still being processed. Contact support before trying again.'],409);
-            $activeSubscription=$pdo->prepare("SELECT id FROM user_subscriptions WHERE user_id=? AND provider='ideamart' AND provider_status='REGISTERED' AND status='active' ORDER BY id DESC LIMIT 1");
-            $activeSubscription->execute([$user['id']]);
-            if (!$activeSubscription->fetchColumn()) Http::json(['ok'=>false,'retain_key'=>$existingStatus==='authorized','error'=>'An active IdeaMart subscription is required before a carrier charge can be submitted.'],409);
+            $activeSubscription=$pdo->prepare("SELECT id FROM user_subscriptions WHERE user_id=? AND provider='ideamart' AND provider_status='REGISTERED' AND status='active' AND id=(SELECT MAX(latest.id) FROM user_subscriptions latest WHERE latest.user_id=? AND latest.provider='ideamart') LIMIT 1");
+            $activeSubscription->execute([$user['id'],$user['id']]);
+            $hasActiveSubscription=(bool)$activeSubscription->fetchColumn();
+            if (!$hasActiveSubscription) {
+                // Keep the local subscription mirror in sync when a carrier callback
+                // was delayed or missed. The carrier remains authoritative.
+                try {
+                    $statusResponse=(new IdeamartClient())->subscriptionStatus($user['ideamart_subscriber_id']);
+                    $providerStatus=strtoupper(trim((string)($statusResponse['subscriptionStatus']??'')));
+                    if (IdeamartClient::successful($statusResponse)&&$providerStatus!=='') {
+                        self::saveIdeamartSubscription($pdo,(int)$user['id'],$providerStatus);
+                        $activeSubscription->execute([$user['id'],$user['id']]);
+                        $hasActiveSubscription=(bool)$activeSubscription->fetchColumn();
+                    }
+                } catch (\Throwable $statusError) {
+                    error_log('Ideamart subscription check before charge failed: '.$statusError->getMessage());
+                    Http::json(['ok'=>false,'retain_key'=>$existingStatus==='authorized','error'=>'IdeaMart subscription status could not be confirmed. Please try again shortly.'],503);
+                }
+            }
+            if (!$hasActiveSubscription) Http::json(['ok'=>false,'retain_key'=>$existingStatus==='authorized','error'=>'An active IdeaMart subscription is required before a carrier charge can be submitted.'],409);
             if ($retryable) {
                 $pdo->prepare("UPDATE payment_transactions SET provider_reference=NULL WHERE user_id=? AND provider='ideamart' AND external_reference=? AND status='authorized'")->execute([$user['id'],$external]);
             } else {
