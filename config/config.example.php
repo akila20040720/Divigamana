@@ -42,7 +42,7 @@ return [
     'qwen' => [
         'api_key' => getenv('QWEN_API_KEY') ?: '',
         'base_url' => getenv('QWEN_BASE_URL') ?: 'https://{WORKSPACE_ID}.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1',
-        // Optional: set the shared Singapore endpoint only if your host cannot route to the workspace endpoint.
+        // Optional regional fallback override. Singapore workspace endpoints also fall back automatically to DashScope on connect errors.
         'fallback_base_url' => getenv('QWEN_FALLBACK_BASE_URL') ?: '',
         'model' => getenv('QWEN_MODEL') ?: 'qwen-plus',
         // Keep this below the cPanel PHP max_execution_time. 45 seconds is a safe default.
