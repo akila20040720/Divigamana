@@ -49,7 +49,7 @@ return [
         'model' => getenv('QWEN_MODEL') ?: 'qwen-plus',
         'timeout_seconds' => 75,
         'max_output_tokens' => 4000,
-        'temperature' => 0.85,
+        'temperature' => 0.65,
         'mock_mode' => filter_var(getenv('QWEN_MOCK_MODE') ?: 'true', FILTER_VALIDATE_BOOLEAN),
     ],
     // Rahu Kalaya uses a transparent Colombo time calculation, not an AI guess.

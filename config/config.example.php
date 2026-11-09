@@ -48,7 +48,8 @@ return [
         // Keep this below the cPanel PHP max_execution_time. 45 seconds is a safe default.
         'timeout_seconds' => 45,
         'max_output_tokens' => 2200,
-        'temperature' => 0.85,
+        // Lower sampling keeps the structured readings consistent and grounded.
+        'temperature' => 0.65,
         'mock_mode' => filter_var(getenv('QWEN_MOCK_MODE') ?: 'true', FILTER_VALIDATE_BOOLEAN),
     ],
     // Rahu Kalaya uses a transparent Colombo time calculation, not an AI guess.

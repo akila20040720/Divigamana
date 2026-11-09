@@ -3,6 +3,9 @@ namespace Divigamana\Support;
 use PDO;
 final class Database {
     private static ?PDO $pdo = null;
+    public static function disconnect(): void {
+        self::$pdo=null;
+    }
     public static function pdo(): PDO {
         if (self::$pdo) return self::$pdo;
         $c = APP_CONFIG['db'];

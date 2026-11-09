@@ -576,10 +576,29 @@ final class ApiController {
         $chargeReference=trim((string)($_SESSION['caas_paid_reference']??''));
         $chargedService=(string)($_SESSION['caas_paid_service']??'');
         if ($service['paid']&&(!preg_match('/^divigamana-[A-Za-z0-9._-]{1,100}$/',$chargeReference)||$chargedService!==$service['slug'])) Http::json(['ok'=>false,'error'=>'A successful mobile carrier charge is required before this paid reading can start.'],402);
-        $answers=is_array($input['answers']??null)?$input['answers']:[];
+        $submittedAnswers=is_array($input['answers']??null)?$input['answers']:[];
+        $answers=[];
         foreach ($service['fields'] as $field) {
-            $value=trim((string)($answers[$field['name']]??''));
+            $value=trim((string)($submittedAnswers[$field['name']]??''));
             if ($field['required']&&$value==='') Http::json(['ok'=>false,'error'=>'Please complete: '.str_replace('_',' ',$field['name'])],422);
+            if ($value!==''&&$field['type']==='select') {
+                $allowed=array_column($field['options']??[],'value');
+                if (!in_array($value,$allowed,true)) Http::json(['ok'=>false,'error'=>'Choose a valid option for '.str_replace('_',' ',$field['name']).'.'],422);
+            }
+            if ($field['type']==='checkbox'&&$value!==''&&$value!=='yes') Http::json(['ok'=>false,'error'=>'Please confirm the consent question.'],422);
+            if ($value!==''&&$field['type']==='date') {
+                $parts=[];
+                if (!preg_match('/^(\d{4})-(\d{2})-(\d{2})$/',$value,$parts)||!checkdate((int)$parts[2],(int)$parts[3],(int)$parts[1])) Http::json(['ok'=>false,'error'=>'Enter a valid date for '.str_replace('_',' ',$field['name']).'.'],422);
+            }
+            if ($value!==''&&$field['type']==='month'&&!preg_match('/^\d{4}-(0[1-9]|1[0-2])$/',$value)) Http::json(['ok'=>false,'error'=>'Choose a valid month.'],422);
+            if ($value!==''&&$field['type']==='time'&&!preg_match('/^(?:[01]\d|2[0-3]):[0-5]\d$/',$value)) Http::json(['ok'=>false,'error'=>'Enter a valid time.'],422);
+            if ($value!==''&&$field['type']==='number') {
+                if (!preg_match('/^\d+$/',$value)) Http::json(['ok'=>false,'error'=>'Enter a whole number for '.str_replace('_',' ',$field['name']).'.'],422);
+                $number=(int)$value;
+                if ($field['name']==='count'&&($number<1||$number>15)) Http::json(['ok'=>false,'error'=>'Choose between 1 and 15 names.'],422);
+                if ($field['name']==='year'&&($number<1900||$number>2200)) Http::json(['ok'=>false,'error'=>'Choose a year between 1900 and 2200.'],422);
+                $value=(string)$number;
+            }
             $answers[$field['name']]=self::cleanAnswer($value);
         }
         $idempotency=(string)($input['idempotency_key']??'');
@@ -646,14 +665,23 @@ final class ApiController {
         }
         
         try {
+            // Qwen may take longer than MySQL's wait_timeout. Drop the idle
+            // connection and reconnect only when the generated result is ready.
+            if ($requestId) {
+                $pdo=null;
+                Database::disconnect();
+            }
             $provider=new QwenProvider();
             $result=$provider->generate($service,$answers,$input['locale']??'si-LK',$context);
             
-            if ($pdo&&$requestId) {
+            if ($requestId) {
                 if (in_array(hash('sha256',json_encode($result['result'],JSON_UNESCAPED_UNICODE)),$context['previous_hashes']??[],true)) {
                     $context['reading_reference']='retry-'.$requestId.'-'.bin2hex(random_bytes(12));
+                    $pdo=null;
+                    Database::disconnect();
                     $result=$provider->generate($service,$answers,$input['locale']??'si-LK',$context);
                 }
+                $pdo=Database::pdo();
                 $pdo->prepare("INSERT INTO horoscope_results (request_id,result_json,model_name) VALUES (?,?,?)")->execute([$requestId,json_encode($result['result'],JSON_UNESCAPED_UNICODE),$result['model']]);
                 $pdo->prepare("UPDATE horoscope_requests SET status='completed',completed_at=NOW() WHERE id=?")->execute([$requestId]);
                 $pdo->prepare('INSERT INTO ai_usage_logs (request_id,model_name,total_tokens,duration_ms) VALUES (?,?,?,?)')->execute([$requestId,$result['model'],$result['tokens'],$result['duration_ms']]);
@@ -661,8 +689,15 @@ final class ApiController {
             
             Http::json(['ok'=>true,'result'=>$result['result'],'request_id'=>$requestId,'simulated_charge'=>$service['paid']]);
         } catch (\Throwable $error) {
-            if ($pdo&&$pdo->inTransaction()) $pdo->rollBack();
-            if ($pdo&&$requestId) $pdo->prepare("UPDATE horoscope_requests SET status='failed' WHERE id=?")->execute([$requestId]);
+            try {
+                if ($pdo&&$pdo->inTransaction()) $pdo->rollBack();
+                if ($requestId) {
+                    $pdo=Database::pdo();
+                    $pdo->prepare("UPDATE horoscope_requests SET status='failed' WHERE id=? AND status<>'completed'")->execute([$requestId]);
+                }
+            } catch (\Throwable $databaseError) {
+                error_log('Divigamana: Could not update reading failure status: '.$databaseError->getMessage());
+            }
             error_log('Divigamana reading error: '.$error->getMessage().' in '.$error->getFile().':'.$error->getLine());
             error_log('Divigamana error trace: '.$error->getTraceAsString());
             $errorMessage='We could not generate this reading just now. Please try again.';
