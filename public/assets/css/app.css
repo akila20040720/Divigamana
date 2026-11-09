@@ -16,6 +16,9 @@
 .subscription-field input{min-width:0;width:100%;padding:12px 0;border:0;outline:0;background:transparent;color:#261a3a;font-size:clamp(1.35rem,3.3vw,2rem);letter-spacing:.025em}
 .subscription-field input::placeholder{color:#9791a5;opacity:1}
 .subscription-field:focus-within{outline:3px solid #e8c856;outline-offset:3px}
+.subscription-consent{display:flex!important;align-items:center;gap:11px;margin:18px 4px 0!important;color:#d5c9e5}
+.subscription-consent input{flex:0 0 20px;width:20px;height:20px;margin:0;accent-color:#e2bb4d}
+.subscription-consent span{font-size:.82rem;line-height:1.5}
 .subscription-action{min-height:56px;margin-top:16px;border-radius:13px;background:linear-gradient(180deg,#edcf68 0%,#d3a83e 100%);box-shadow:0 14px 30px #d2a74425;color:#20142a;font-family:'Noto Sans Sinhala','Noto Sans Tamil',Georgia,serif;font-size:1rem;font-weight:700;transition:filter .18s,transform .18s}
 .subscription-action::after{content:'  »';font-family:Georgia,serif;font-weight:400}
 .subscription-action:hover{filter:brightness(1.08);transform:translateY(-1px)}
@@ -27,7 +30,7 @@
 .otp-field input::placeholder{letter-spacing:.38em;color:#a59caf}
 .otp-resend-hint{margin:16px 0 0;padding:0;text-align:center;color:#b9adc9;font-size:.82rem;line-height:1.6}
 .visually-hidden{position:absolute!important;width:1px!important;height:1px!important;padding:0!important;margin:-1px!important;overflow:hidden!important;clip:rect(0,0,0,0)!important;white-space:nowrap!important;border:0!important}
-@media(max-width:600px){.subscription-modal{width:calc(100% - 24px);min-height:0;max-height:calc(100dvh - 24px);padding:58px 20px 24px;border-width:2px;border-radius:22px}.subscription-close{top:12px;right:13px;font-size:1.8rem}.subscription-step{min-height:0}.subscription-step h2{margin:14px auto 20px;font-size:1.35rem;line-height:1.55}.subscription-field{min-height:60px;gap:13px;padding:0 16px;border-radius:14px}.subscription-field svg{width:22px;height:22px;flex-basis:22px}.subscription-field input{font-size:1.1rem}.subscription-action{min-height:54px;border-radius:13px;font-size:1rem}.subscription-disclosure{padding-top:0;font-size:.72rem}.otp-resend-hint{padding-top:0;font-size:.78rem}}
+@media(max-width:600px){.subscription-modal{width:calc(100% - 24px);min-height:0;max-height:calc(100dvh - 24px);padding:58px 20px 24px;border-width:2px;border-radius:22px}.subscription-close{top:12px;right:13px;font-size:1.8rem}.subscription-step{min-height:0}.subscription-step h2{margin:14px auto 20px;font-size:1.35rem;line-height:1.55}.subscription-field{min-height:60px;gap:13px;padding:0 16px;border-radius:14px}.subscription-field svg{width:22px;height:22px;flex-basis:22px}.subscription-field input{font-size:1.1rem}.subscription-consent{margin-top:14px!important}.subscription-action{min-height:54px;border-radius:13px;font-size:1rem}.subscription-disclosure{padding-top:0;font-size:.72rem}.otp-resend-hint{padding-top:0;font-size:.78rem}}
 .subscription-eyebrow{display:none}
 .otp-resend-link{display:inline-block;padding:8px 12px;border:1px solid #cfae54;border-radius:999px;background:#ffffff0a;color:#f0c952;font:inherit;font-size:.9rem;cursor:pointer}
 .otp-resend-link:hover{background:#ffffff16}
