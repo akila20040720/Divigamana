@@ -33,7 +33,7 @@ foreach (ApiRoutes::all() as $action=>$route) {
     $wrong=apiCase($action,$method==='GET'?'POST':'GET');
     check($wrong['status']===405,"$action rejects the wrong HTTP method");
 }
-$protectedExpectations=['auth'=>422,'verify'=>422,'subscription'=>410,'unsubscribe'=>401,'subscription-status'=>401,'subscription-base'=>403,'caas-charge'=>410,'mspace-charge-otp'=>401,'mspace-charge-verify'=>401,'generate'=>401];
+$protectedExpectations=['auth'=>422,'verify'=>422,'subscription'=>401,'unsubscribe'=>401,'subscription-status'=>401,'subscription-base'=>403,'caas-charge'=>401,'mspace-charge-otp'=>401,'mspace-charge-verify'=>401,'generate'=>401];
 foreach ($protectedExpectations as $action=>$expected) {
     $result=apiCase($action,'POST',true);
     check($result['status']===$expected&&($result['body']['ok']??true)===false,"POST $action reaches its safe validation/auth boundary");
@@ -46,12 +46,15 @@ $fakeIdeamart=static function(string $key,string $url,array $body) use (&$ideama
     $ideamartRequests[$key]=['url'=>$url,'body'=>$body];
     return $key==='otp_request_url'?['statusCode'=>'S1000','referenceNo'=>'safe-test-reference']:['statusCode'=>'S1000','subscriberId'=>'tel:masked-test','internalTrxId'=>'internal-test','baseSize'=>0];
 };
-$ideamartConfig=['application_id'=>'APP_TEST','password'=>'test-secret','otp_request_url'=>'https://example.test/otp/request','otp_verify_url'=>'https://example.test/otp/verify','subscription_url'=>'https://example.test/subscription','subscription_status_url'=>'https://example.test/status','subscription_base_url'=>'https://example.test/base'];
-$ideamart=new IdeamartClient($ideamartConfig,$fakeIdeamart,true);
+$ideamartConfig=['application_id'=>'APP_TEST','password'=>'test-secret','otp_request_url'=>'https://example.test/otp/request','otp_verify_url'=>'https://example.test/otp/verify','subscription_url'=>'https://example.test/subscription','subscription_status_url'=>'https://example.test/status','subscription_base_url'=>'https://example.test/base','caas_debit_url'=>'https://example.test/debit','caas_balance_url'=>'https://example.test/balance','caas_payment_instrument'=>'MobileAccount'];
+$ideamart=new IdeamartClient($ideamartConfig,$fakeIdeamart,true,true);
 $ideamart->otpRequest('tel:94770000000',['client'=>'WEBAPP'],'contract-test-hash');
 $ideamart->otpVerify('safe-reference','123456');
 $ideamart->subscribe('tel:masked-test'); $ideamart->unsubscribe('tel:masked-test');
 $ideamart->subscriptionStatus('tel:masked-test'); $ideamart->subscriptionBase();
+$ideamart->charge('tel:masked-test','divigamana-contract-test','20.00');
+check(($ideamartRequests['caas_debit_url']['body']['amount']??'')==='20.00','IdeaMart CAAS debit sends a decimal string amount');
+check(($ideamartRequests['caas_debit_url']['body']['externalTrxId']??'')==='divigamana-contract-test','IdeaMart CAAS debit carries the idempotency key');
 check(($ideamartRequests['otp_request_url']['body']['applicationHash']??'')==='contract-test-hash','Ideamart OTP request carries an application hash');
 
 $mspaceRequests=[];
@@ -71,7 +74,7 @@ check($blocked,'mSpace debit is blocked when its CAAS switch is off');
 $routes=ApiRoutes::all();
 check(($routes['mspace-charge-otp']['handler'][1]??'')==='mspaceChargeOtp','the CAAS payment route starts with OTP authorization');
 check(($routes['mspace-charge-verify']['handler'][1]??'')==='mspaceChargeVerify','the CAAS payment verification route confirms OTP');
-check(($routes['subscription']['handler'][1]??'')==='subscribe','legacy subscription endpoint returns a clear disabled response');
+check(($routes['subscription']['handler'][1]??'')==='subscribe','subscription endpoint is wired to the IdeaMart subscription action');
 $prices=array_values(array_unique(array_column(array_filter(Divigamana\Services\ServiceCatalog::all(),static fn(array $service): bool=>$service['paid']),'price_lkr')));
 check($prices===['20.00'],'all paid readings have a fixed one-time LKR 20.00 price');
 

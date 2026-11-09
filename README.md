@@ -4,27 +4,20 @@ Mobile-first multilingual Sri Lankan astrology application for PHP 8.x and MySQL
 
 ## OTP sign-in and one-time CAAS payments
 
-Mobile sign-in uses the IdeaMart registration OTP integration. No recurring IdeaMart
-subscription is requested by the application; the legacy `subscription` API returns HTTP
-410. A successful phone OTP verifies the account, while each paid reading is separately
-charged once for LKR 20.00 after the customer approves a CAAS charging OTP.
+Mobile sign-in uses the IdeaMart registration OTP integration. The subscription and
+unsubscribe actions use the IdeaMart Subscription API. Each paid reading is separately
+charged once for LKR 20.00 through the server-side IdeaMart CAAS direct-debit API.
 
-Paid reading charges use the Mobitel mSpace OTP flow. Mobitel provides the production
-debit and OTP verification endpoints; leave `MSPACE_CAAS_LIVE=false` until the exact
-endpoints are provisioned and approved. Real payments currently support verified Mobitel
-numbers only. Set `MSPACE_LIVE=true` with credentials and IP allow-listing, then enable the
-separate `MSPACE_CAAS_LIVE=true` switch after approval. The UI calls
-`POST /api.php?action=mspace-charge-otp`, then
-`POST /api.php?action=mspace-charge-verify`. The former direct-debit endpoint
-`POST /api.php?action=caas-charge` returns HTTP 410 and cannot charge a subscriber.
+IdeaMart CAAS requires the server IP to be allow-listed and the debit service to be
+provisioned. The UI calls `POST /api.php?action=caas-charge`; the server persists the
+external transaction ID before charging and treats `E1379` as an idempotent success.
 
-IdeaMart recurring subscription notifications and direct-debit billing are no longer used
-to grant access or pay for readings. Existing carrier subscriptions created outside this
-application are not automatically cancelled. IdeaMart server credentials are still needed
-for the registration OTP integration; never expose them in browser code or committed
-configuration. Paid prices are enforced by the server-side `ServiceCatalog` (LKR 20.00 per
-paid reading; `name-reading` is free). The payment record is created before OTP delivery,
-and a confirmed payment can be claimed by one reading only.
+IdeaMart server credentials are still needed for the registration and subscription APIs;
+never expose them in browser code or committed configuration. Paid prices are enforced by
+the server-side `ServiceCatalog` (LKR 20.00 per paid reading; `name-reading` is free).
+The payment record is created before the debit request, and a confirmed payment can be
+claimed by one reading only. Existing carrier subscriptions created outside this
+application are not automatically cancelled.
 
 ## Local/development setup
 
