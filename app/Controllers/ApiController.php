@@ -119,10 +119,8 @@ final class ApiController {
         Http::requirePostCsrf($input);
         $mobile=self::mobile((string)($input['mobile']??''));
         if (!$mobile) Http::json(['ok'=>false,'error'=>'Enter a valid Sri Lankan mobile number.'],422);
-        if (empty($input['consent'])) Http::json(['ok'=>false,'error'=>'Subscription consent is required.'],422);
         $rateKey='otp:'.hash('sha256',$mobile.'|'.(string)($_SERVER['REMOTE_ADDR']??''));
         if (!self::development() && !self::rate($rateKey,60)) Http::json(['ok'=>false,'error'=>'Please wait before requesting another code.'],429);
-        $_SESSION['otp_consent']=true;
         $ideamart=new IdeamartClient();
         if ($ideamart->enabled()) {
             try {
@@ -134,7 +132,7 @@ final class ApiController {
                 ],self::uuid4());
                 if (($response['statusCode']??'')==='E1351') {
                     unset($_SESSION['rate'][$rateKey]);
-                    unset($_SESSION['otp_mobile'],$_SESSION['otp_consent'],$_SESSION['otp_reference']);
+                    unset($_SESSION['otp_mobile'],$_SESSION['otp_reference']);
                     Http::json(['ok'=>false,'error'=>'This mobile number is already registered with IdeaMart. The registration OTP cannot authenticate an existing account. Contact support to restore account access.'],409);
                 }
                 if (!IdeamartClient::successful($response)) {
@@ -166,8 +164,8 @@ final class ApiController {
         Http::requirePostCsrf($input);
         $code=(string)($input['otp']??'');
         $mobile=$_SESSION['otp_mobile']??null;
-        if (!preg_match('/^\d{6}$/',$code)||!$mobile||empty($_SESSION['otp_consent'])) {
-            error_log('OTP verification rejected locally: invalid code, missing OTP session, or missing consent.');
+        if (!preg_match('/^\d{6}$/',$code)||!$mobile) {
+            error_log('OTP verification rejected locally: invalid code or missing OTP session.');
             Http::json(['ok'=>false,'error'=>'The verification session has expired. Request a new OTP and try again.'],422);
         }
         $_SESSION['otp_attempts']=(int)($_SESSION['otp_attempts']??0)+1;
@@ -196,26 +194,6 @@ final class ApiController {
                     $subscriptionStatus=strtoupper(trim((string)($statusResponse['subscriptionStatus']??'')));
                 }
                 if ($subscriptionStatus==='') Http::json(['ok'=>false,'error'=>'IdeaMart returned no subscription status after mobile verification.'],502);
-                // The OTP modal records explicit subscription consent. If IdeaMart
-                // reports the verified subscriber as UNREGISTERED, complete the
-                // opt-in here; CaaS is configured to require an active subscription.
-                if ($subscriptionStatus==='UNREGISTERED') {
-                    $subscribeResponse=$ideamart->subscribe($subscriberId);
-                    if (!IdeamartClient::successful($subscribeResponse,['E1351'])) {
-                        error_log('Ideamart subscription opt-in rejected: '.IdeamartClient::diagnostic($subscribeResponse));
-                        Http::json(['ok'=>false,'error'=>'Mobile verification succeeded, but the IdeaMart subscription could not be activated. Please try again later.'],502);
-                    }
-                    $subscriptionStatus=strtoupper(trim((string)($subscribeResponse['subscriptionStatus']??'')));
-                    if ($subscriptionStatus===''||($subscribeResponse['statusCode']??'')==='E1351') {
-                        $statusResponse=$ideamart->subscriptionStatus($subscriberId);
-                        if (!IdeamartClient::successful($statusResponse)) {
-                            error_log('Ideamart status after subscription opt-in failed: '.IdeamartClient::diagnostic($statusResponse));
-                            Http::json(['ok'=>false,'error'=>'Mobile verification succeeded, but the IdeaMart subscription status is still being confirmed. Please try again later.'],503);
-                        }
-                        $subscriptionStatus=strtoupper(trim((string)($statusResponse['subscriptionStatus']??'')));
-                    }
-                    if ($subscriptionStatus==='') Http::json(['ok'=>false,'error'=>'IdeaMart returned no subscription status after opt-in. Please try again later.'],502);
-                }
             } catch (\Throwable $error) {
                 error_log('Ideamart OTP verification failed: '.$error->getMessage());
                 Http::json(['ok'=>false,'error'=>'OTP service is temporarily unavailable.'],503);
@@ -232,17 +210,11 @@ final class ApiController {
                 $pdo->prepare("INSERT INTO users (mobile_e164,ideamart_subscriber_id,otp_verified_demo,phone_verified_real,role) VALUES (?,?,0,1,'user')")->execute([$mobile,$subscriberId]);
                 $id=(int)$pdo->lastInsertId();
                 self::saveIdeamartSubscription($pdo,$id,$subscriptionStatus);
-                $consentText='I consented to the Ideamart subscription after reviewing the applicable service terms.';
-                $pdo->prepare("INSERT INTO consent_history (user_id,consent_type,consent_text,locale) VALUES (?,'subscription',?,?)")->execute([$id,$consentText,$input['locale']??'si-LK']);
                 $user=['id'=>$id,'mobile_e164'=>$mobile,'role'=>'user'];
             } else {
                 if (($user['account_status'] ?? 'active') === 'blocked') {
                     $pdo->rollBack();
                     Http::json(['ok'=>false,'error'=>'This account has been blocked. Contact support for assistance.'],403);
-                }
-                if ((int)($user['phone_verified_real']??0)!==1) {
-                    $consentText='I consented to the Ideamart subscription after reviewing the applicable service terms.';
-                    $pdo->prepare("INSERT INTO consent_history (user_id,consent_type,consent_text,locale) VALUES (?,'subscription',?,?)")->execute([$user['id'],$consentText,$input['locale']??'si-LK']);
                 }
                 $pdo->prepare('UPDATE users SET otp_verified_demo=0,phone_verified_real=1,ideamart_subscriber_id=COALESCE(?,ideamart_subscriber_id) WHERE id=?')->execute([$subscriberId,$user['id']]);
                 self::saveIdeamartSubscription($pdo,(int)$user['id'],$subscriptionStatus);
@@ -250,7 +222,7 @@ final class ApiController {
             $pdo->commit();
             self::touchLogin($pdo, (int)$user['id']);
             Session::login($user);
-            unset($_SESSION['otp_mobile'],$_SESSION['otp_consent'],$_SESSION['otp_reference'],$_SESSION['otp_attempts']);
+            unset($_SESSION['otp_mobile'],$_SESSION['otp_reference'],$_SESSION['otp_attempts']);
             Http::json(['ok'=>true,'user'=>Session::user(),'simulated'=>false]);
         } catch (\Throwable $error) {
             if ($pdo&&$pdo->inTransaction()) $pdo->rollBack();
