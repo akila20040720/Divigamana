@@ -21,7 +21,6 @@ final class ApiRoutes
             'ideamart-subscription-notification' => ['method'=>'POST', 'handler'=>[ApiController::class,'ideamartSubscriptionNotification']],
             // Configure this as the IdeaMart Charging Notification URL.
             'ideamart-charge-notification' => ['method'=>'POST', 'handler'=>[ApiController::class,'ideamartChargeNotification']],
-            'caas-balance' => ['method'=>'POST', 'handler'=>[ApiController::class,'caasBalance']],
             'caas-charge' => ['method'=>'POST', 'handler'=>[ApiController::class,'caasCharge']],
             'mspace-charge-otp' => ['method'=>'POST', 'handler'=>[ApiController::class,'mspaceChargeOtp']],
             'mspace-charge-verify' => ['method'=>'POST', 'handler'=>[ApiController::class,'mspaceChargeVerify']],

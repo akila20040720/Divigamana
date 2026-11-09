@@ -14,7 +14,6 @@ return [
         'caas_otp_verify_url' => getenv('MSPACE_CAAS_OTP_VERIFY_URL') ?: '',
     ],
     'ideamart_live' => filter_var(getenv('IDEAMART_LIVE') ?: 'false', FILTER_VALIDATE_BOOLEAN),
-    'ideamart_caas_live' => filter_var(getenv('IDEAMART_CAAS_LIVE') ?: 'false', FILTER_VALIDATE_BOOLEAN),
     'ideamart' => [
         'application_id' => getenv('IDEAMART_APP_ID') ?: '',
         'password' => getenv('IDEAMART_PASSWORD') ?: '',
@@ -23,13 +22,8 @@ return [
         'subscription_url' => getenv('IDEAMART_SUBSCRIPTION_SEND_URL') ?: 'https://api.ideamart.io/subscription/send',
         'subscription_status_url' => getenv('IDEAMART_SUBSCRIPTION_STATUS_URL') ?: 'https://api.ideamart.io/subscription/getStatus',
         'subscription_base_url' => getenv('IDEAMART_SUBSCRIPTION_QUERY_BASE_URL') ?: 'https://api.ideamart.io/subscription/query-base',
-        'caas_debit_url' => getenv('IDEAMART_CAAS_DEBIT_URL') ?: 'https://api.ideamart.io/caas/direct/debit',
-        'caas_balance_url' => getenv('IDEAMART_CAAS_BALANCE_URL') ?: 'https://api.ideamart.io/caas/balance/query',
-        // Optional; use only when IdeaMart provisioned a specific payment account for this app.
-        'caas_account_id' => getenv('IDEAMART_CAAS_ACCOUNT_ID') ?: '',
-        // Required secret shared by the app and the portal charging-notification URL.
+        // Optional secret retained only to safely acknowledge legacy provider callbacks.
         'caas_callback_token' => getenv('IDEAMART_CAAS_CALLBACK_TOKEN') ?: '',
-        'caas_payment_instrument' => getenv('IDEAMART_CAAS_PAYMENT_INSTRUMENT') ?: 'MobileAccount',
     ],
     'app_url' => getenv('APP_URL') ?: 'https://divigamana.lk',
     'db' => [

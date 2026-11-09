@@ -371,12 +371,6 @@ final class ApiController {
             error_log('IdeaMart charging callback database failure: '.$error->getMessage());
         }
     }
-    public static function caasBalance(): void {
-        $input=Http::input(); Http::requirePostCsrf($input);
-        $user=self::ideamartUser();
-        try { $response=(new IdeamartClient())->balance($user['ideamart_subscriber_id']); Http::json(['ok'=>IdeamartClient::successful($response),'balance'=>$response]); }
-        catch (\Throwable $error) { error_log('Ideamart balance failed: '.$error->getMessage()); Http::json(['ok'=>false,'error'=>'Charging service is temporarily unavailable.'],503); }
-    }
     public static function caasCharge(): void {
         // Keep the old endpoint discoverable for deployed clients, but do not allow
         // it to bypass the OTP-authorized one-time CAAS charge flow.
@@ -385,6 +379,7 @@ final class ApiController {
     }
     public static function mspaceChargeOtp(): void {
         $input=Http::input(); Http::requirePostCsrf($input); $user=self::mspaceUser();
+        if (!(new MspaceClient())->chargingEnabled()) Http::json(['ok'=>false,'error'=>'OTP carrier billing is temporarily unavailable.'],503);
         $service=ServiceCatalog::find((string)($input['service']??''));
         if (!$service||!$service['paid']) Http::json(['ok'=>false,'error'=>'A paid service is required for carrier billing.'],422);
         $amount=(string)$service['price_lkr'];
@@ -396,12 +391,23 @@ final class ApiController {
             $external='divigamana-'.substr(hash('sha256',(string)$user['id'].'|'.$key),0,20);
             $subscriber='tel:'.substr((string)$user['mobile_e164'],1);
             $pdo=Database::pdo();
-            $existing=$pdo->prepare("SELECT status,provider_reference FROM payment_transactions WHERE user_id=? AND provider='mspace' AND external_reference=? LIMIT 1");
+            $existing=$pdo->prepare("SELECT status,provider_reference,request_id FROM payment_transactions WHERE user_id=? AND provider='mspace' AND external_reference=? LIMIT 1");
             $existing->execute([$user['id'],$external]);
             $existingRow=$existing->fetch(\PDO::FETCH_ASSOC) ?: [];
             $existingStatus=(string)($existingRow['status']??'');
-            if ($existingStatus==='paid') Http::json(['ok'=>false,'error'=>'This payment has already been used. Start a new one-time payment.'],409);
-            if ($existingStatus==='authorized') Http::json(['ok'=>false,'error'=>'This charge is already awaiting OTP verification. Verify it or request support.'],409);
+            if ($existingStatus==='paid') {
+                if (!empty($existingRow['request_id'])) Http::json(['ok'=>false,'error'=>'This payment has already been used. Start a new one-time payment.'],409);
+                $_SESSION['caas_paid_reference']=$external;
+                $_SESSION['caas_paid_service']=$service['slug'];
+                Http::json(['ok'=>true,'already_paid'=>true,'cached'=>true,'external_reference'=>$external]);
+            }
+            if ($existingStatus==='authorized') {
+                $pending=$_SESSION['mspace_charge']??null;
+                if (is_array($pending)&&hash_equals((string)($pending['externalTrxId']??''),$external)&&(int)($pending['userId']??0)===(int)$user['id']&&time()<((int)($pending['expiresAt']??0))) {
+                    Http::json(['ok'=>true,'otp_pending'=>true,'message'=>'A charging OTP is already pending.']);
+                }
+                Http::json(['ok'=>false,'error'=>'This charge is already awaiting OTP verification. Verify it or contact support.'],409);
+            }
             if ($existingStatus==='failed') {
                 $pdo->prepare("UPDATE payment_transactions SET status='authorized',provider_reference=NULL WHERE user_id=? AND provider='mspace' AND external_reference=? AND status='failed'")->execute([$user['id'],$external]);
             } else {
@@ -585,7 +591,7 @@ final class ApiController {
                 $pdo->prepare('INSERT INTO ai_usage_logs (request_id,model_name,total_tokens,duration_ms) VALUES (?,?,?,?)')->execute([$requestId,$result['model'],$result['tokens'],$result['duration_ms']]);
             }
             
-            Http::json(['ok'=>true,'result'=>$result['result'],'request_id'=>$requestId,'simulated_charge'=>$service['paid']]);
+            Http::json(['ok'=>true,'result'=>$result['result'],'request_id'=>$requestId,'paid_charge'=>$service['paid']]);
         } catch (\Throwable $error) {
             try {
                 if ($pdo&&$pdo->inTransaction()) $pdo->rollBack();

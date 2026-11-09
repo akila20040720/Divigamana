@@ -8,14 +8,12 @@ final class IdeamartClient
     private array $config;
     private $transport;
     private bool $live;
-    private bool $caasLive;
 
-    public function __construct(?array $config=null, ?callable $transport=null, ?bool $live=null, ?bool $caasLive=null)
+    public function __construct(?array $config=null, ?callable $transport=null, ?bool $live=null)
     {
         $this->config=$config??(APP_CONFIG['ideamart']??[]);
         $this->transport=$transport;
         $this->live=$live??!empty(APP_CONFIG['ideamart_live']);
-        $this->caasLive=$caasLive??!empty(APP_CONFIG['ideamart_caas_live']);
     }
 
     public function enabled(): bool
@@ -24,8 +22,6 @@ final class IdeamartClient
             && trim((string)($this->config['application_id']??''))!==''
             && trim((string)($this->config['password']??''))!=='';
     }
-
-    public function chargingEnabled(): bool { return $this->enabled() && $this->caasLive; }
 
     public function otpRequest(string $subscriberId,array $metadata=[],?string $applicationHash=null): array
     {
@@ -48,29 +44,6 @@ final class IdeamartClient
     public function subscriptionStatus(string $subscriberId): array { self::requireSubscriber($subscriberId); return $this->call('subscription_status_url',['version'=>'1.0','subscriberId'=>$subscriberId]); }
     public function subscriptionBase(): array { return $this->call('subscription_base_url',['version'=>'1.0']); }
 
-    public function charge(string $subscriberId,string $externalTrxId,string $amount): array
-    {
-        self::requireSubscriber($subscriberId); self::requireCharge($externalTrxId,$amount);
-        $payload=[
-            'externalTrxId'=>$externalTrxId,
-            'subscriberId'=>$subscriberId,
-            'paymentInstrument'=>trim((string)($this->config['caas_payment_instrument']??'MobileAccount')),
-            'amount'=>$amount,
-            'currency'=>'LKR',
-        ];
-        $accountId=trim((string)($this->config['caas_account_id']??''));
-        if ($accountId!=='') $payload['accountId']=$accountId;
-        return $this->call('caas_debit_url',$payload,true);
-    }
-
-    public function balance(string $subscriberId): array {
-        self::requireSubscriber($subscriberId);
-        $payload=['subscriberId'=>$subscriberId,'currency'=>'LKR'];
-        $accountId=trim((string)($this->config['caas_account_id']??''));
-        if ($accountId!=='') $payload['accountId']=$accountId;
-        return $this->call('caas_balance_url',$payload);
-    }
-
     public static function successful(array $response,array $benign=[]): bool { return in_array((string)($response['statusCode']??''),array_merge(['S1000'],$benign),true); }
     public static function transientFailure(array $response): bool
     {
@@ -84,16 +57,9 @@ final class IdeamartClient
     }
 
     private static function requireSubscriber(string $subscriberId): void { if ($subscriberId===''||strlen($subscriberId)>255) throw new RuntimeException('Invalid subscriber identifier.'); }
-    private static function requireCharge(string $externalTrxId,string $amount): void
-    {
-        if (!preg_match('/^[A-Za-z0-9._-]{1,32}$/',$externalTrxId)) throw new RuntimeException('Invalid external transaction identifier.');
-        if (!preg_match('/^(?:0|[1-9]\d{0,7})\.\d{2}$/',$amount)||$amount==='0.00') throw new RuntimeException('Invalid charge amount.');
-    }
-
-    private function call(string $urlKey,array $payload,bool $charging=false): array
+    private function call(string $urlKey,array $payload): array
     {
         if (!$this->enabled()) throw new RuntimeException('Ideamart is disabled or credentials are not configured.');
-        if ($charging&&!$this->caasLive) throw new RuntimeException('Ideamart charging is disabled.');
         $url=trim((string)($this->config[$urlKey]??''));
         if ($url===''||!filter_var($url,FILTER_VALIDATE_URL)||strtolower((string)parse_url($url,PHP_URL_SCHEME))!=='https') throw new RuntimeException('Ideamart HTTPS endpoint is not configured: '.$urlKey);
         $body=array_merge(['applicationId'=>(string)$this->config['application_id'],'password'=>(string)$this->config['password']],$payload);
