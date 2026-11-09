@@ -371,6 +371,12 @@ final class ApiController {
             error_log('IdeaMart charging callback database failure: '.$error->getMessage());
         }
     }
+    public static function caasBalance(): void {
+        $input=Http::input(); Http::requirePostCsrf($input);
+        $user=self::ideamartUser();
+        try { $response=(new IdeamartClient())->balance($user['ideamart_subscriber_id']); Http::json(['ok'=>IdeamartClient::successful($response),'balance'=>$response]); }
+        catch (\Throwable $error) { error_log('Ideamart balance failed: '.$error->getMessage()); Http::json(['ok'=>false,'error'=>'Charging service is temporarily unavailable.'],503); }
+    }
     public static function caasCharge(): void {
         // Keep the old endpoint discoverable for deployed clients, but do not allow
         // it to bypass the OTP-authorized one-time CAAS charge flow.
@@ -379,7 +385,6 @@ final class ApiController {
     }
     public static function mspaceChargeOtp(): void {
         $input=Http::input(); Http::requirePostCsrf($input); $user=self::mspaceUser();
-        if (!(new MspaceClient())->chargingEnabled()) Http::json(['ok'=>false,'error'=>'OTP carrier billing is temporarily unavailable.'],503);
         $service=ServiceCatalog::find((string)($input['service']??''));
         if (!$service||!$service['paid']) Http::json(['ok'=>false,'error'=>'A paid service is required for carrier billing.'],422);
         $amount=(string)$service['price_lkr'];
@@ -391,28 +396,13 @@ final class ApiController {
             $external='divigamana-'.substr(hash('sha256',(string)$user['id'].'|'.$key),0,20);
             $subscriber='tel:'.substr((string)$user['mobile_e164'],1);
             $pdo=Database::pdo();
-            $existing=$pdo->prepare("SELECT status,provider_reference,request_id FROM payment_transactions WHERE user_id=? AND provider='mspace' AND external_reference=? LIMIT 1");
+            $existing=$pdo->prepare("SELECT status,provider_reference FROM payment_transactions WHERE user_id=? AND provider='mspace' AND external_reference=? LIMIT 1");
             $existing->execute([$user['id'],$external]);
             $existingRow=$existing->fetch(\PDO::FETCH_ASSOC) ?: [];
             $existingStatus=(string)($existingRow['status']??'');
-            if ($existingStatus==='paid') {
-                if (!empty($existingRow['request_id'])) Http::json(['ok'=>false,'error'=>'This payment has already been used. Start a new one-time payment.'],409);
-                $_SESSION['caas_paid_reference']=$external;
-                $_SESSION['caas_paid_service']=$service['slug'];
-                Http::json(['ok'=>true,'already_paid'=>true,'cached'=>true,'external_reference'=>$external]);
-            }
-            if ($existingStatus==='authorized') {
-                $pending=$_SESSION['mspace_charge']??null;
-                if (is_array($pending)&&hash_equals((string)($pending['externalTrxId']??''),$external)&&(int)($pending['userId']??0)===(int)$user['id']&&time()<((int)($pending['expiresAt']??0))) {
-                    Http::json(['ok'=>true,'otp_pending'=>true,'message'=>'A charging OTP is already pending.']);
-                }
-                Http::json(['ok'=>false,'error'=>'This charge is already awaiting OTP verification. Verify it or contact support.'],409);
-            }
-            if ($existingStatus==='failed') {
-                $pdo->prepare("UPDATE payment_transactions SET status='authorized',provider_reference=NULL WHERE user_id=? AND provider='mspace' AND external_reference=? AND status='failed'")->execute([$user['id'],$external]);
-            } else {
-                $pdo->prepare("INSERT INTO payment_transactions (user_id,amount,currency,status,is_simulated,provider,external_reference,description) VALUES (?,?,'LKR','authorized',0,'mspace',?,?)")->execute([$user['id'],$amount,$external,'mSpace CAAS one-time '.$service['slug'].' charge']);
-            }
+            if ($existingStatus==='paid') Http::json(['ok'=>false,'error'=>'This payment has already been used. Start a new one-time payment.'],409);
+            if ($existingStatus==='authorized') Http::json(['ok'=>false,'error'=>'This charge is already awaiting OTP verification. Verify it or request support.'],409);
+            $pdo->prepare("INSERT INTO payment_transactions (user_id,amount,currency,status,is_simulated,provider,external_reference,description) VALUES (?,?,'LKR','authorized',0,'mspace',?,?)")->execute([$user['id'],$amount,$external,'mSpace CAAS one-time '.$service['slug'].' charge']);
             $consent='I authorize a one-time LKR '.$amount.' mobile-account charge for the '.$service['slug'].' reading.';
             $ipHash=hash('sha256',(string)($_SERVER['REMOTE_ADDR']??''));
             $pdo->prepare("INSERT INTO consent_history (user_id,consent_type,consent_text,locale,ip_hash) VALUES (?,'mspace_caas_charge',?,?,?)")->execute([$user['id'],$consent,(string)($input['locale']??'si-LK'),$ipHash]);
@@ -422,7 +412,7 @@ final class ApiController {
                 error_log('mSpace CAAS OTP rejected: '.MspaceClient::diagnostic($response));
                 Http::json(['ok'=>false,'error'=>'mSpace could not send the charging OTP.'],502);
             }
-            $_SESSION['mspace_charge']=['externalTrxId'=>$external,'referenceNo'=>(string)$response['referenceNo'],'amount'=>$amount,'subscriberId'=>$subscriber,'userId'=>(int)$user['id'],'service'=>$service['slug'],'attempts'=>0,'expiresAt'=>time()+600];
+            $_SESSION['mspace_charge']=['externalTrxId'=>$external,'referenceNo'=>(string)$response['referenceNo'],'amount'=>$amount,'subscriberId'=>$subscriber,'userId'=>(int)$user['id'],'service'=>$service['slug'],'expiresAt'=>time()+600];
             Http::json(['ok'=>true,'message'=>'A charging OTP was sent to your mobile number.']);
         } catch (\Throwable $error) {
             if (isset($pdo,$external)) $pdo->prepare("UPDATE payment_transactions SET status='failed' WHERE user_id=? AND provider='mspace' AND external_reference=? AND status='authorized'")->execute([$user['id'],$external]);
@@ -436,8 +426,6 @@ final class ApiController {
         if (!is_array($charge)||(int)($charge['userId']??0)!==(int)$user['id']||time()>((int)($charge['expiresAt']??0))||!preg_match('/^\d{4,8}$/',$otp)) {
             Http::json(['ok'=>false,'error'=>'The mSpace charging session has expired. Request a new charging OTP.'],422);
         }
-        $_SESSION['mspace_charge']['attempts']=(int)($_SESSION['mspace_charge']['attempts']??0)+1;
-        if ($_SESSION['mspace_charge']['attempts']>3) Http::json(['ok'=>false,'error'=>'Too many payment OTP attempts. Request a new payment OTP.'],429);
         try {
             $response=(new MspaceClient())->verifyChargeOtp((string)$charge['referenceNo'],$otp,(string)$charge['subscriberId']);
             if (!MspaceClient::successful($response)) {
@@ -591,7 +579,7 @@ final class ApiController {
                 $pdo->prepare('INSERT INTO ai_usage_logs (request_id,model_name,total_tokens,duration_ms) VALUES (?,?,?,?)')->execute([$requestId,$result['model'],$result['tokens'],$result['duration_ms']]);
             }
             
-            Http::json(['ok'=>true,'result'=>$result['result'],'request_id'=>$requestId,'paid_charge'=>$service['paid']]);
+            Http::json(['ok'=>true,'result'=>$result['result'],'request_id'=>$requestId,'simulated_charge'=>$service['paid']]);
         } catch (\Throwable $error) {
             try {
                 if ($pdo&&$pdo->inTransaction()) $pdo->rollBack();
