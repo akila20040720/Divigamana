@@ -33,7 +33,7 @@ foreach (ApiRoutes::all() as $action=>$route) {
     $wrong=apiCase($action,$method==='GET'?'POST':'GET');
     check($wrong['status']===405,"$action rejects the wrong HTTP method");
 }
-$protectedExpectations=['auth'=>422,'verify'=>422,'subscription'=>422,'unsubscribe'=>401,'subscription-status'=>401,'subscription-base'=>403,'caas-balance'=>401,'caas-charge'=>401,'mspace-charge-otp'=>401,'mspace-charge-verify'=>401,'generate'=>401];
+$protectedExpectations=['auth'=>422,'verify'=>422,'subscription'=>410,'unsubscribe'=>401,'subscription-status'=>401,'subscription-base'=>403,'caas-balance'=>401,'caas-charge'=>410,'mspace-charge-otp'=>401,'mspace-charge-verify'=>401,'generate'=>401];
 foreach ($protectedExpectations as $action=>$expected) {
     $result=apiCase($action,'POST',true);
     check($result['status']===$expected&&($result['body']['ok']??true)===false,"POST $action reaches its safe validation/auth boundary");
@@ -76,6 +76,11 @@ check(($mspaceRequests['caas_debit_url']['body']['paymentInstrumentName']??'')==
 check(($mspaceRequests['caas_otp_verify_url']['body']['sourceAddress']??'')==='tel:94710000000','mSpace OTP verification preserves the subscriber');
 $blocked=false; try { (new MspaceClient($mspaceConfig,$fakeMspace,true,false))->generateChargeOtp('tel:test','safe-id','20.00'); } catch (Throwable) { $blocked=true; }
 check($blocked,'mSpace debit is blocked when its CAAS switch is off');
+
+$routes=ApiRoutes::all();
+check(($routes['mspace-charge-otp']['handler'][1]??'')==='mspaceChargeOtp','the CAAS payment route starts with OTP authorization');
+check(($routes['mspace-charge-verify']['handler'][1]??'')==='mspaceChargeVerify','the CAAS payment verification route confirms OTP');
+check(($routes['subscription']['handler'][1]??'')==='subscribe','legacy subscription endpoint remains available to return a clear disabled response');
 
 echo "\n$passed passed, $failed failed\n";
 exit($failed===0?0:1);

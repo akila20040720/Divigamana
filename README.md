@@ -2,66 +2,29 @@
 
 Mobile-first multilingual Sri Lankan astrology application for PHP 8.x and MySQL/MariaDB. It uses no Node.js or server-side build tooling.
 
-## Ideamart integration
+## OTP sign-in and one-time CAAS payments
 
-Ideamart calls are server-side only. Set these environment variables on the host (never in
-the browser or a committed config file):
+Mobile sign-in uses the IdeaMart registration OTP integration. No recurring IdeaMart
+subscription is requested by the application; the legacy `subscription` API returns HTTP
+410. A successful phone OTP verifies the account, while each paid reading is separately
+charged once for LKR 20.00 after the customer approves a CAAS charging OTP.
 
-```text
-IDEAMART_APP_ID=
-IDEAMART_PASSWORD=
-IDEAMART_CAAS_CALLBACK_TOKEN=
-```
+Paid reading charges use the Mobitel mSpace OTP flow. Mobitel provides the production
+debit and OTP verification endpoints; leave `MSPACE_CAAS_LIVE=false` until the exact
+endpoints are provisioned and approved. Real payments currently support verified Mobitel
+numbers only. Set `MSPACE_LIVE=true` with credentials and IP allow-listing, then enable the
+separate `MSPACE_CAAS_LIVE=true` switch after approval. The UI calls
+`POST /api.php?action=mspace-charge-otp`, then
+`POST /api.php?action=mspace-charge-verify`. The former direct-debit endpoint
+`POST /api.php?action=caas-charge` returns HTTP 410 and cannot charge a subscriber.
 
-Copy `.env.example` to the server's private `.env`, fill in the credentials, and set
-`IDEAMART_LIVE=true` only after the application is provisioned and its server IP is
-whitelisted. Keep `IDEAMART_CAAS_LIVE=false` through OTP/subscription testing; it is a
-separate kill switch for real-money debit requests. With either switch or its required
-credentials missing, the corresponding operation refuses to make a network call. The demo OTP flow is disabled by default.
-Set `demo_otp_enabled` to `true` only for local development. Set `ideamart_live` to `true` only on a server with valid credentials and
-the required Ideamart IP whitelist/provisioning.
-
-The database uses TCP by default (`DB_HOST=127.0.0.1`, `DB_PORT=3306`) to avoid PHP
-trying a missing local MySQL socket. Set `DB_HOST=localhost` only when the production
-host intentionally exposes MySQL through its Unix socket.
-
-For a temporary local outage workaround only, set `SKIP_DATABASE_CHECK=true`. OTP and
-Ideamart registration can complete, but the session is temporary and no user, consent,
-subscription, or payment record is saved. Set it back to `false` before production use.
-
-OTP verification returns the masked subscriber ID and subscription state; the application
-stores these and avoids sending a duplicate opt-in request. Subscription notifications
-update the local state used by the app. Configure
-`https://divigamana.lk/api.php?action=ideamart-subscription-notification` as the IdeaMart
-Subscription Notification URL. Set a long random `IDEAMART_CAAS_CALLBACK_TOKEN` in the
-private server environment and configure the Charging Notification URL with that same
-token, for example:
-`https://divigamana.lk/api.php?action=ideamart-charge-notification&token=YOUR_RANDOM_TOKEN`.
-The charging callback verifies its token, subscriber, amount, and currency before updating
-a payment record. Then run
-[`database/migration_ideamart_subscription_sync.sql`](database/migration_ideamart_subscription_sync.sql)
-once on existing databases. It records carrier subscription state changes so the admin
-dashboard reflects current provider details. If IdeaMart provisioned a specific CaaS payment
-account, set `IDEAMART_CAAS_ACCOUNT_ID`; otherwise leave it blank. Paid readings use the
-server-side `ServiceCatalog` price map (LKR 20.00 for paid readings; `name-reading` is `0.00`
-and remains free). Every
-paid debit creates and stores its `externalTrxId` before the request and treats `E1379` as
-an idempotent success. Run `database/migration_ideamart.sql` on databases created before
-the Ideamart integration.
-
-IdeaMart's registration OTP endpoint returns `E1351` for an already-registered subscriber;
-that response does not prove the person currently holds the phone. The application therefore
-does not log in an existing account from `E1351`. A separate existing-account authentication
-method is required for returning users.
-
-## mSpace Mobitel TAP
-
-The optional mSpace provider implements the provisioned CAAS OTP flow. Mobitel must
-supply and approve the exact debit and OTP-verification endpoints; no endpoint is assumed
-by default. Credentials are read from `MSPACE_APP_ID` and `MSPACE_PASSWORD`. Enable
-`MSPACE_LIVE=true` only after provisioning and IP allow-listing, and keep the independent
-`MSPACE_CAAS_LIVE=false` until final billing approval. Use `POST /api.php?action=mspace-charge-otp` followed by
-`POST /api.php?action=mspace-charge-verify`.
+IdeaMart recurring subscription notifications and direct-debit billing are no longer used
+to grant access or pay for readings. Existing carrier subscriptions created outside this
+application are not automatically cancelled. IdeaMart server credentials are still needed
+for the registration OTP integration; never expose them in browser code or committed
+configuration. Paid prices are enforced by the server-side `ServiceCatalog` (LKR 20.00 per
+paid reading; `name-reading` is free). The payment record is created before OTP delivery,
+and a confirmed payment can be claimed by one reading only.
 
 ## Local/development setup
 
@@ -90,31 +53,17 @@ Before enabling either CAAS switch on an existing database, also run
 It keeps the application's immutable idempotency key separate from the carrier's internal
 transaction reference, preventing retries from creating a second charge.
 
-## Production verification
+## Billing verification
 
-Run the offline route and carrier-contract suite first; it exercises every API route and
-both CAAS payload formats without contacting a carrier or moving money:
+Run the offline route and carrier-contract suite. It does not contact a carrier or move
+money:
 
 ```bash
 php tests/run.php
 ```
 
-Then run the production preflight on the deployed server:
-
-```bash
-php scripts/preflight.php
-```
-
-After Ideamart credentials and the production server IP allow-list are confirmed, its
-read-only subscriber-base check can be added. This still never calls a debit endpoint:
-
-```bash
-php scripts/preflight.php --live-ideamart-readonly
-```
-
-Only after every required preflight item passes, limited-production billing is approved,
-and a real low-value transaction is supervised should `IDEAMART_CAAS_LIVE` or
-`MSPACE_CAAS_LIVE` be changed to `true`.
+Use `php scripts/preflight.php` to check production configuration. Only enable live Mobitel
+CAAS after the provider endpoints, credentials, and IP allow-list have been approved.
 
 ## Qwen production configuration
 
@@ -125,13 +74,6 @@ Set `qwen.mock_mode` to `false`, then add the Alibaba Cloud Model Studio **produ
 ```
 
 Never place this key in JavaScript, Git, public files, browser responses, or error logs. The application posts to `/chat/completions` from PHP cURL, records model/tokens/duration, and rejects malformed structured output. Use the endpoint and API key from the same Model Studio region/workspace.
-
-## Current development simulation
-
-- Any six-digit OTP completes only the **demo** verification route (`otp_verified_demo=1`); `phone_verified_real` remains `0`.
-- No SMS is sent; no telecom or card billing is activated.
-- An active subscription and Rs. 20 service transaction are explicitly `is_simulated=1`.
-- Production deployment must replace demo OTP with hashed, expiring provider-issued codes, resend/attempt controls, and ownership verification. Billing stays off until a provider is implemented and tested.
 
 ## cPanel deployment checklist
 
