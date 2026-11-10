@@ -7,10 +7,15 @@ use Divigamana\Services\MspaceClient;
 use Divigamana\Services\RahuKalaya;
 use Divigamana\Services\ServiceCatalog;
 use Divigamana\Support\Database;
+use Divigamana\Support\Csrf;
 use Divigamana\Support\Http;
 use Divigamana\Support\Session;
 
 final class ApiController {
+    public static function csrf(): void {
+        Http::json(['ok'=>true,'csrf'=>Csrf::token()]);
+    }
+
     private static function mobile(string $value): ?string {
         $number=preg_replace('/\D/','',$value);
         if (substr($number,0,1)==='0') $number='94'.substr($number,1);

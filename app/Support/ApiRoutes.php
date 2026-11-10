@@ -9,6 +9,7 @@ final class ApiRoutes
     public static function all(): array
     {
         return [
+            'csrf' => ['method'=>'GET', 'handler'=>[ApiController::class,'csrf']],
             'rahu' => ['method'=>'GET', 'handler'=>[ApiController::class,'rahu']],
             'status' => ['method'=>'GET', 'handler'=>[ApiController::class,'status']],
             'auth' => ['method'=>'POST', 'handler'=>[ApiController::class,'auth']],
