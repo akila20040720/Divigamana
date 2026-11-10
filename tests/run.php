@@ -75,6 +75,9 @@ $routes=ApiRoutes::all();
 check(($routes['mspace-charge-otp']['handler'][1]??'')==='mspaceChargeOtp','the CAAS payment route starts with OTP authorization');
 check(($routes['mspace-charge-verify']['handler'][1]??'')==='mspaceChargeVerify','the CAAS payment verification route confirms OTP');
 check(($routes['subscription']['handler'][1]??'')==='subscribe','subscription endpoint is wired to the IdeaMart subscription action');
+$controllerSource=file_get_contents(dirname(__DIR__).'/app/Controllers/ApiController.php');
+check(is_string($controllerSource)&&str_contains($controllerSource,"new IdeamartClient())->chargingEnabled()"),'paid readings use the IdeaMart CAAS gate');
+check(is_string($controllerSource)&&str_contains($controllerSource,"provider='ideamart' AND external_reference"),'paid readings reconcile IdeaMart CAAS payments');
 $prices=array_values(array_unique(array_column(array_filter(Divigamana\Services\ServiceCatalog::all(),static fn(array $service): bool=>$service['paid']),'price_lkr')));
 check($prices===['20.00'],'all paid readings have a fixed one-time LKR 20.00 price');
 

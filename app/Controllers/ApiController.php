@@ -561,7 +561,7 @@ final class ApiController {
                 $verified=$pdo->prepare('SELECT phone_verified_real FROM users WHERE id=? LIMIT 1');
                 $verified->execute([$user['id']]);
                 if (!$verified->fetchColumn()) Http::json(['ok'=>false,'error'=>'Verify your mobile number by OTP before using this service.'],403);
-                if ($service['paid']&&!(new MspaceClient())->chargingEnabled()) Http::json(['ok'=>false,'error'=>'OTP carrier billing is temporarily unavailable.'],503);
+                if ($service['paid']&&!(new IdeamartClient())->chargingEnabled()) Http::json(['ok'=>false,'error'=>'Carrier billing is temporarily unavailable.'],503);
                 $paidChargeId=0;
                 if ($service['paid']) {
                     $paidCharge=$pdo->prepare("SELECT id FROM payment_transactions WHERE user_id=? AND provider='ideamart' AND external_reference=? AND amount=? AND status='paid' AND (request_id IS NULL OR request_id=(SELECT id FROM horoscope_requests WHERE user_id=? AND idempotency_key=? LIMIT 1)) LIMIT 1");
