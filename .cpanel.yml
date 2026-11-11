@@ -7,7 +7,7 @@ deployment:
   tasks:
     - export DEPLOYPATH=/home/rakiyacl/divigamana.lk
     - /bin/mkdir -p "$DEPLOYPATH/public" "$DEPLOYPATH/app" "$DEPLOYPATH/config"
-    - /bin/cp index.php api.php robots.txt sitemap.xml .htaccess "$DEPLOYPATH/"
+    - /bin/cp index.php terms.php privacy.php api.php robots.txt sitemap.xml .htaccess "$DEPLOYPATH/"
     - /bin/cp -R app/* "$DEPLOYPATH/app/"
     - /bin/cp config/config.example.php "$DEPLOYPATH/config/"
     - /bin/cp -R public/assets "$DEPLOYPATH/public/"
