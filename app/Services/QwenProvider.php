@@ -45,7 +45,10 @@ final class QwenProvider {
         if ($apiKey==='') throw new \RuntimeException('Qwen API key is not configured.');
         // Qwen JSON mode needs an explicit JSON instruction in the messages; the system prompt above provides it.
         // Sinhala readings with several sections routinely exceed 1600 tokens.
-        $body=['model'=>$q['model'],'messages'=>[['role'=>'system','content'=>$system],['role'=>'user','content'=>$prompt]],'temperature'=>min(1.0,max(0.2,(float)($q['temperature']??0.65))),'top_p'=>0.8,'max_tokens'=>max(2200,(int)($q['max_output_tokens']??2200)),'response_format'=>['type'=>'json_object']];
+        // Honor the configured output budget while preserving room for the
+        // larger structured readings and preventing an accidental huge cap.
+        $maxOutputTokens=max(1200,min(8192,(int)($q['max_output_tokens']??2200)));
+        $body=['model'=>$q['model'],'messages'=>[['role'=>'system','content'=>$system],['role'=>'user','content'=>$prompt]],'temperature'=>min(1.0,max(0.2,(float)($q['temperature']??0.65))),'top_p'=>0.8,'max_tokens'=>$maxOutputTokens,'response_format'=>['type'=>'json_object']];
         if (json_encode($body)===false) throw new \RuntimeException('Could not encode the Qwen request JSON: '.json_last_error_msg());
         $base=rtrim((string)$q['base_url'],'/');
         if (substr($base,-19)!=='/compatible-mode/v1') $base.='/compatible-mode/v1';
@@ -61,7 +64,7 @@ final class QwenProvider {
             $endpoint=$useFallback?$fallback:$base;
             $ch=curl_init($endpoint.'/chat/completions');
             // Do not force IPv4: cPanel hosts vary in their IPv4/IPv6 routing.
-            curl_setopt_array($ch,[CURLOPT_POST=>true,CURLOPT_HTTPHEADER=>['Authorization: Bearer '.$apiKey,'Content-Type: application/json'],CURLOPT_POSTFIELDS=>json_encode($body),CURLOPT_RETURNTRANSFER=>true,CURLOPT_CONNECTTIMEOUT=>min(10,$timeout),CURLOPT_TIMEOUT=>$timeout]);
+            curl_setopt_array($ch,[CURLOPT_POST=>true,CURLOPT_HTTPHEADER=>['Authorization: Bearer '.$apiKey,'Content-Type: application/json'],CURLOPT_POSTFIELDS=>json_encode($body),CURLOPT_RETURNTRANSFER=>true,CURLOPT_CONNECTTIMEOUT=>min(5,$timeout),CURLOPT_TIMEOUT=>$timeout]);
             $raw=curl_exec($ch); $status=(int)curl_getinfo($ch,CURLINFO_HTTP_CODE); $error=curl_error($ch);
             $timeMs=(int)round(curl_getinfo($ch,CURLINFO_TOTAL_TIME)*1000);
             $ip=(string)curl_getinfo($ch,CURLINFO_PRIMARY_IP);

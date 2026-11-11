@@ -150,48 +150,50 @@ $totalUsers=0;$totalPages=1;$offset=0;$pageSize=50;
 
 try {
     $pdo = Database::pdo();
-    $sum = $pdo->query("SELECT COUNT(*) all_count, COALESCE(SUM($activeExpr),0) active_count, COALESCE(SUM(u.account_status='blocked'),0) blocked_count FROM users u")->fetch() ?: [];
+    $sum = $pdo->query("SELECT COUNT(*) all_count, COALESCE(SUM($activeExpr),0) active_count, COALESCE(SUM(u.account_status='blocked'),0) blocked_count FROM users u WHERE u.role='user'")->fetch() ?: [];
     $stats['all'] = (int)($sum['all_count'] ?? 0);
     $stats['active'] = (int)($sum['active_count'] ?? 0);
     $stats['blocked'] = (int)($sum['blocked_count'] ?? 0);
     $stats['inactive'] = max(0, $stats['all'] - $stats['active'] - $stats['blocked']);
     $range = [$day . ' 00:00:00', date('Y-m-d 00:00:00', strtotime($day . ' +1 day'))];
-    $st = $pdo->prepare("SELECT COUNT(*) new_users, COALESCE(SUM(last_login_at>=? AND last_login_at<?),0) logins FROM users u WHERE created_at>=? AND created_at<?");
-    $st->execute([$range[0], $range[1], $range[0], $range[1]]);
-    $period = $st->fetch() ?: [];
-    $stats['new'] = (int)($period['new_users'] ?? 0); $stats['logins'] = (int)($period['logins'] ?? 0);
+    $st = $pdo->prepare("SELECT COUNT(*) FROM users u WHERE u.role='user' AND u.created_at>=? AND u.created_at<?");
+    $st->execute($range);
+    $stats['new'] = (int)$st->fetchColumn();
+    $st = $pdo->prepare("SELECT COUNT(*) FROM users WHERE role='user' AND last_login_at>=? AND last_login_at<?");
+    $st->execute($range);
+    $stats['logins'] = (int)$st->fetchColumn();
 
     $providersByName=['mSpace'=>['provider'=>'mSpace','users'=>0,'active'=>0,'inactive'=>0,'real_verified'=>0,'charges'=>0,'successful'=>0,'failed'=>0,'revenue'=>0],'IdeaMart'=>['provider'=>'IdeaMart','users'=>0,'active'=>0,'inactive'=>0,'real_verified'=>0,'charges'=>0,'successful'=>0,'failed'=>0,'revenue'=>0],'Unknown'=>['provider'=>'Unknown','users'=>0,'active'=>0,'inactive'=>0,'real_verified'=>0,'charges'=>0,'successful'=>0,'failed'=>0,'revenue'=>0]];
-    $st=$pdo->prepare("SELECT $providerExpr provider,COUNT(*) users,COALESCE(SUM($activeExpr),0) active,COALESCE(SUM(u.account_status='active' AND u.phone_verified_real=1 AND NOT ($activeExpr)),0) inactive,COALESCE(SUM($realUserExpr),0) real_verified FROM users u WHERE u.created_at>=? AND u.created_at<? GROUP BY provider");
+    $st=$pdo->prepare("SELECT $providerExpr provider,COUNT(*) users,COALESCE(SUM($activeExpr),0) active,COALESCE(SUM(u.account_status='active' AND u.phone_verified_real=1 AND NOT ($activeExpr)),0) inactive,COALESCE(SUM($realUserExpr),0) real_verified FROM users u WHERE u.role='user' AND u.created_at>=? AND u.created_at<? GROUP BY provider");
     $st->execute($range);
     foreach($st->fetchAll() as $row) foreach(['users','active','inactive','real_verified'] as $metric) $providersByName[$row['provider']][$metric]=(int)$row[$metric];
-    $dailyProviderSql="SELECT $providerExpr provider,COUNT(*) charges,COALESCE(SUM(p.status='paid'),0) successful,COALESCE(SUM(p.status='failed'),0) failed,COALESCE(SUM(CASE WHEN p.status='paid' THEN p.amount ELSE 0 END),0) revenue FROM payment_transactions p JOIN users u ON u.id=p.user_id WHERE p.provider IN ('ideamart','mspace') AND p.is_simulated=0 AND p.created_at>=? AND p.created_at<? GROUP BY provider";
+    $dailyProviderSql="SELECT $providerExpr provider,COUNT(*) charges,COALESCE(SUM(p.status='paid'),0) successful,COALESCE(SUM(p.status='failed'),0) failed,COALESCE(SUM(CASE WHEN p.status='paid' THEN p.amount ELSE 0 END),0) revenue FROM payment_transactions p JOIN users u ON u.id=p.user_id AND u.role='user' WHERE p.provider IN ('ideamart','mspace') AND p.is_simulated=0 AND p.created_at>=? AND p.created_at<? GROUP BY $providerExpr";
     $st=$pdo->prepare($dailyProviderSql);$st->execute($range);
     foreach($st->fetchAll() as $row) foreach(['charges','successful','failed','revenue'] as $metric) $providersByName[$row['provider']][$metric]=$row[$metric];
     $providers=array_values($providersByName);
-    $baseRows=$pdo->query("SELECT $providerExpr provider,COUNT(*) n FROM users u WHERE $activeExpr GROUP BY provider")->fetchAll();
+    $baseRows=$pdo->query("SELECT $providerExpr provider,COUNT(*) n FROM users u WHERE u.role='user' AND $activeExpr GROUP BY provider")->fetchAll();
     foreach($baseRows as $row) $providerBase[$row['provider']]=(int)$row['n'];
-    $platformRows=$pdo->query("SELECT $providerExpr provider,COUNT(*) users,COALESCE(SUM($activeExpr),0) active,COALESCE(SUM(u.account_status='active' AND u.phone_verified_real=1 AND NOT ($activeExpr)),0) inactive FROM users u GROUP BY provider")->fetchAll();
+    $platformRows=$pdo->query("SELECT $providerExpr provider,COUNT(*) users,COALESCE(SUM($activeExpr),0) active,COALESCE(SUM(u.account_status='active' AND u.phone_verified_real=1 AND NOT ($activeExpr)),0) inactive FROM users u WHERE u.role='user' GROUP BY provider")->fetchAll();
     foreach($platformRows as $row) $platforms[$row['provider']]=['users'=>(int)$row['users'],'active'=>(int)$row['active'],'inactive'=>(int)$row['inactive']];
-    $st = $pdo->prepare("SELECT COUNT(*) total, COALESCE(SUM(u.phone_verified_real=1),0) verified, COALESCE(SUM(u.phone_verified_real=1 AND ($providerExpr)='IdeaMart'),0) ideamart, COALESCE(SUM(u.phone_verified_real=1 AND ($providerExpr)='mSpace'),0) mspace, COALESCE(SUM(u.phone_verified_real=0),0) pending FROM users u WHERE created_at>=? AND created_at<?");
+    $st = $pdo->prepare("SELECT COUNT(*) total, COALESCE(SUM(u.phone_verified_real=1),0) verified, COALESCE(SUM(u.phone_verified_real=1 AND ($providerExpr)='IdeaMart'),0) ideamart, COALESCE(SUM(u.phone_verified_real=1 AND ($providerExpr)='mSpace'),0) mspace, COALESCE(SUM(u.phone_verified_real=0),0) pending FROM users u WHERE u.role='user' AND u.created_at>=? AND u.created_at<?");
     $st->execute($range); $verification = array_map('intval', $st->fetch() ?: $verification);
 
-    $st=$pdo->prepare("SELECT COUNT(*) day_count,COALESCE(SUM(status='paid'),0) day_success,COALESCE(SUM(status='failed'),0) day_failed,COALESCE(SUM(CASE WHEN status='paid' THEN amount ELSE 0 END),0) day_revenue FROM payment_transactions WHERE provider IN ('ideamart','mspace') AND is_simulated=0 AND created_at>=? AND created_at<?");
+    $st=$pdo->prepare("SELECT COUNT(*) day_count,COALESCE(SUM(status='paid'),0) day_success,COALESCE(SUM(status='failed'),0) day_failed,COALESCE(SUM(CASE WHEN status='paid' THEN amount ELSE 0 END),0) day_revenue FROM payment_transactions WHERE provider IN ('ideamart','mspace') AND is_simulated=0 AND user_id IN (SELECT id FROM users WHERE role='user') AND created_at>=? AND created_at<?");
     $st->execute($range);$charges=array_merge($charges,$st->fetch()?:[]);
-    $all=$pdo->query("SELECT COUNT(*) all_count,COALESCE(SUM(status='paid'),0) all_success,COALESCE(SUM(status='failed'),0) all_failed,COALESCE(SUM(CASE WHEN status='paid' THEN amount ELSE 0 END),0) all_revenue,COALESCE(AVG(CASE WHEN status='paid' THEN amount END),0) average_success FROM payment_transactions WHERE provider IN ('ideamart','mspace') AND is_simulated=0")->fetch()?:[];
+    $all=$pdo->query("SELECT COUNT(*) all_count,COALESCE(SUM(status='paid'),0) all_success,COALESCE(SUM(status='failed'),0) all_failed,COALESCE(SUM(CASE WHEN status='paid' THEN amount ELSE 0 END),0) all_revenue,COALESCE(AVG(CASE WHEN status='paid' THEN amount END),0) average_success FROM payment_transactions WHERE provider IN ('ideamart','mspace') AND is_simulated=0 AND user_id IN (SELECT id FROM users WHERE role='user')")->fetch()?:[];
     $charges=array_merge($charges,$all);
     $dailyStart=date('Y-m-d 00:00:00',strtotime($day.' -13 days'));
-    $st=$pdo->prepare("SELECT DATE(created_at) day,COUNT(*) attempts,COALESCE(SUM(status='paid'),0) successful,COALESCE(SUM(CASE WHEN status='paid' THEN amount ELSE 0 END),0) revenue FROM payment_transactions WHERE provider IN ('ideamart','mspace') AND is_simulated=0 AND created_at>=? AND created_at<? GROUP BY DATE(created_at)");
+    $st=$pdo->prepare("SELECT DATE(created_at) day,COUNT(*) attempts,COALESCE(SUM(status='paid'),0) successful,COALESCE(SUM(CASE WHEN status='paid' THEN amount ELSE 0 END),0) revenue FROM payment_transactions WHERE provider IN ('ideamart','mspace') AND is_simulated=0 AND user_id IN (SELECT id FROM users WHERE role='user') AND created_at>=? AND created_at<? GROUP BY DATE(created_at)");
     $st->execute([$dailyStart,$range[1]]);$dailyByDate=[];foreach($st->fetchAll() as $row)$dailyByDate[$row['day']]=$row;
     for($offset=13;$offset>=0;$offset--){$date=date('Y-m-d',strtotime($day.' -'.$offset.' days'));$dailyCharges[]=$dailyByDate[$date]??['day'=>$date,'attempts'=>0,'successful'=>0,'revenue'=>0];}
     $hourStart=new DateTimeImmutable(date('Y-m-d H:00:00'),new DateTimeZone('Asia/Colombo'));
     $hourRangeStart=$hourStart->modify('-23 hours');
-    $st=$pdo->prepare("SELECT DATE_FORMAT(accepted_at,'%Y-%m-%d %H:00') hour_label,COUNT(*) n FROM user_subscriptions WHERE is_simulated=0 AND provider IN ('ideamart','mspace') AND accepted_at>=? AND accepted_at<=NOW() GROUP BY hour_label");
+    $st=$pdo->prepare("SELECT DATE_FORMAT(accepted_at,'%Y-%m-%d %H:00') hour_label,COUNT(*) n FROM user_subscriptions WHERE is_simulated=0 AND provider IN ('ideamart','mspace') AND user_id IN (SELECT id FROM users WHERE role='user') AND accepted_at>=? AND accepted_at<=NOW() GROUP BY hour_label");
     $st->execute([$hourRangeStart->format('Y-m-d H:i:s')]);$subscriptionHours=[];foreach($st->fetchAll() as $row)$subscriptionHours[$row['hour_label']]=(int)$row['n'];
     for($offset=0;$offset<24;$offset++){$hour=$hourStart->modify('-'.$offset.' hours')->format('Y-m-d H:00');$subscriptions[]=['hour_label'=>$hour,'n'=>$subscriptionHours[$hour]??0];}
-    $popular = $pdo->query('SELECT s.slug, COUNT(q.id) n FROM service_catalog s LEFT JOIN horoscope_requests q ON q.service_id=s.id GROUP BY s.id,s.slug ORDER BY n DESC,s.id ASC LIMIT 8')->fetchAll();
+    $popular = $pdo->query("SELECT s.slug, COUNT(q.id) n FROM service_catalog s LEFT JOIN horoscope_requests q ON q.service_id=s.id AND q.user_id IN (SELECT id FROM users WHERE role='user') GROUP BY s.id,s.slug ORDER BY n DESC,s.id ASC LIMIT 8")->fetchAll();
 
-    $where=[];$params=[];
+    $where=["u.role='user'"];$params=[];
     if($query!==''){$digits=preg_replace('/\\D/','',$query);if($digits==='')$where[]='1=0';else{$where[]='(u.mobile_e164 LIKE ? OR u.id=?)';$params[]='%'.$digits.'%';$params[]=(int)$digits;}}
     elseif($scope!=='all'){$where[]='u.created_at>=? AND u.created_at<?';$params=$range;}
     if($filter==='active')$where[]=$activeExpr;
@@ -203,7 +205,7 @@ try {
     $totalPages=max(1,(int)ceil($totalUsers/$pageSize));$page=min($page,$totalPages);$offset=($page-1)*$pageSize;
     $sql="SELECT u.*,CASE WHEN u.account_status='blocked' THEN 'blocked' WHEN u.phone_verified_real=0 THEN 'pending' WHEN $activeExpr THEN 'active' ELSE 'inactive' END dashboard_status,(SELECT MAX(ends_at) FROM user_subscriptions ux WHERE ux.user_id=u.id) subscription_ends_at,(SELECT provider_status FROM user_subscriptions ux WHERE ux.user_id=u.id ORDER BY ux.id DESC LIMIT 1) provider_subscription_status,(SELECT frequency FROM user_subscriptions ux WHERE ux.user_id=u.id ORDER BY ux.id DESC LIMIT 1) subscription_frequency,(SELECT notified_at FROM user_subscriptions ux WHERE ux.user_id=u.id ORDER BY ux.id DESC LIMIT 1) subscription_notified_at FROM users u WHERE ".implode(' AND ',$where)." ORDER BY u.created_at DESC,u.id DESC LIMIT $pageSize OFFSET $offset";
     $st=$pdo->prepare($sql);$st->execute($params);$users=$st->fetchAll();
-    $recent = $pdo->query('SELECT q.status,q.locale,q.created_at,s.slug FROM horoscope_requests q JOIN service_catalog s ON s.id=q.service_id ORDER BY q.id DESC LIMIT 8')->fetchAll();
+    $recent = $pdo->query("SELECT q.status,q.locale,q.created_at,s.slug FROM horoscope_requests q JOIN service_catalog s ON s.id=q.service_id JOIN users u ON u.id=q.user_id AND u.role='user' ORDER BY q.id DESC LIMIT 8")->fetchAll();
 } catch (Throwable $exception) {
     error_log('Divigamana admin dashboard database error: ' . $exception->getMessage());
     $databaseError = true;

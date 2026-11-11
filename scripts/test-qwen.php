@@ -22,6 +22,7 @@ try {
     echo "Title: ".$result['title']."\n";
     echo "Sections: ".count($result['sections']??[])."\n";
     echo "Tokens: ".$reading['tokens']."\n";
+    echo "Duration: ".$reading['duration_ms']." ms\n";
 } catch (Throwable $error) {
     fwrite(STDERR,"Qwen test failed: ".$error->getMessage()."\n");
     exit(1);
