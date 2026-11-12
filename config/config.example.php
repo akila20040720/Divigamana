@@ -9,9 +9,8 @@ return [
     'mspace' => [
         'application_id' => getenv('MSPACE_APP_ID') ?: '',
         'password' => getenv('MSPACE_PASSWORD') ?: '',
-        // Mobitel supplies the provisioned production endpoints. Leave blank until approved.
-        'caas_debit_url' => getenv('MSPACE_CAAS_DEBIT_URL') ?: '',
-        'caas_otp_verify_url' => getenv('MSPACE_CAAS_OTP_VERIFY_URL') ?: '',
+        'caas_debit_url' => getenv('MSPACE_CAAS_DEBIT_URL') ?: 'https://api.mspace.lk/caas/direct/debit',
+        'caas_otp_verify_url' => getenv('MSPACE_CAAS_OTP_VERIFY_URL') ?: 'https://api.mspace.lk/caas/otp/verify',
     ],
     'ideamart_live' => filter_var(getenv('IDEAMART_LIVE') ?: 'false', FILTER_VALIDATE_BOOLEAN),
     'ideamart_caas_live' => filter_var(getenv('IDEAMART_CAAS_LIVE') ?: 'false', FILTER_VALIDATE_BOOLEAN),

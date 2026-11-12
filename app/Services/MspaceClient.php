@@ -45,10 +45,18 @@ final class MspaceClient
         return $this->call('caas_otp_verify_url',['referenceNo'=>$referenceNo,'otp'=>$otp,'sourceAddress'=>$sourceAddress]);
     }
 
-    public static function successful(array $response): bool { return (string)($response['statusCode']??'')==='S1000'; }
+    public static function successful(array $response): bool
+    {
+        return (string)($response['statusCode']??'')==='S1000' && (($response['status']??true)!==false);
+    }
+    public static function reference(array $response): string
+    {
+        return trim((string)($response['requestCorrelator']??$response['referenceNo']??''));
+    }
     public static function diagnostic(array $response): string
     {
-        $code=(string)($response['statusCode']??'UNKNOWN'); $detail=trim((string)($response['statusDetail']??''));
+        $code=(string)($response['statusCode']??'UNKNOWN');
+        $detail=trim((string)($response['statusDetail']??$response['statusDescription']??''));
         return $detail===''?'statusCode='.$code:'statusCode='.$code.' statusDetail='.substr($detail,0,240);
     }
     private static function requireSubscriber(string $subscriberId): void { if ($subscriberId===''||strlen($subscriberId)>255) throw new RuntimeException('Invalid subscriber identifier.'); }

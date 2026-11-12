@@ -58,6 +58,13 @@ php tests/run.php
 Use `php scripts/preflight.php` to check production configuration. Only enable live Mobitel
 CAAS after the provider endpoints, credentials, and IP allow-list have been approved.
 
+The mSpace CAAS integration uses the documented endpoints
+`https://api.mspace.lk/caas/direct/debit` (OTP generation) and
+`https://api.mspace.lk/caas/otp/verify` (OTP verification). The generation response's
+`requestCorrelator` is sent back as `referenceNo` during verification. Keep
+`MSPACE_LIVE` and `MSPACE_CAAS_LIVE` disabled until Mobitel has provisioned the
+application and allow-listed the production server IP.
+
 ## Qwen production configuration
 
 Set `qwen.mock_mode` to `false`, then add the Alibaba Cloud Model Studio **production inference** key, authorised regional OpenAI-compatible base URL, and model ID. The current recommended Singapore endpoint is workspace-specific:

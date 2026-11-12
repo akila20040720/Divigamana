@@ -60,7 +60,7 @@ check(($ideamartRequests['otp_request_url']['body']['applicationHash']??'')==='c
 $mspaceRequests=[];
 $fakeMspace=static function(string $key,string $url,array $body) use (&$mspaceRequests): array {
     $mspaceRequests[$key]=['url'=>$url,'body'=>$body];
-    return $key==='caas_debit_url'?['statusCode'=>'S1000','referenceNo'=>'safe-test-reference']:['statusCode'=>'S1000','internalTrxId'=>'internal-test'];
+    return $key==='caas_debit_url'?['statusCode'=>'S1000','requestCorrelator'=>'safe-test-reference']:['statusCode'=>'S1000','status'=>true];
 };
 $mspaceConfig=['application_id'=>'APP_TEST','password'=>'test-secret','caas_debit_url'=>'https://example.test/debit','caas_otp_verify_url'=>'https://example.test/verify'];
 $mspace=new MspaceClient($mspaceConfig,$fakeMspace,true,true);
@@ -68,6 +68,8 @@ $mspace->generateChargeOtp('tel:94710000000','divigamana-contract-test','20.00')
 $mspace->verifyChargeOtp('safe-reference','123456','tel:94710000000');
 check(($mspaceRequests['caas_debit_url']['body']['paymentInstrumentName']??'')==='Mobile Account','mSpace debit payload uses Mobile Account');
 check(($mspaceRequests['caas_otp_verify_url']['body']['sourceAddress']??'')==='tel:94710000000','mSpace OTP verification preserves the subscriber');
+check(MspaceClient::reference(['statusCode'=>'S1000','requestCorrelator'=>'safe-test-reference'])==='safe-test-reference','mSpace uses the documented request correlator');
+check(MspaceClient::successful(['statusCode'=>'S1000','status'=>true]),'mSpace accepts the documented successful OTP response');
 $blocked=false; try { (new MspaceClient($mspaceConfig,$fakeMspace,true,false))->generateChargeOtp('tel:test','safe-id','20.00'); } catch (Throwable) { $blocked=true; }
 check($blocked,'mSpace debit is blocked when its CAAS switch is off');
 

@@ -459,12 +459,13 @@ final class ApiController {
             $ipHash=hash('sha256',(string)($_SERVER['REMOTE_ADDR']??''));
             $pdo->prepare("INSERT INTO consent_history (user_id,consent_type,consent_text,locale,ip_hash) VALUES (?,'mspace_caas_charge',?,?,?)")->execute([$user['id'],$consent,(string)($input['locale']??'si-LK'),$ipHash]);
             $response=(new MspaceClient())->generateChargeOtp($subscriber,$external,$amount);
-            if (!MspaceClient::successful($response)||empty($response['referenceNo'])) {
+            $reference=MspaceClient::reference($response);
+            if (!MspaceClient::successful($response)||$reference==='') {
                 $pdo->prepare("UPDATE payment_transactions SET status='failed' WHERE user_id=? AND provider='mspace' AND external_reference=?")->execute([$user['id'],$external]);
                 error_log('mSpace CAAS OTP rejected: '.MspaceClient::diagnostic($response));
                 Http::json(['ok'=>false,'error'=>'mSpace could not send the charging OTP.'],502);
             }
-            $_SESSION['mspace_charge']=['externalTrxId'=>$external,'referenceNo'=>(string)$response['referenceNo'],'amount'=>$amount,'subscriberId'=>$subscriber,'userId'=>(int)$user['id'],'service'=>$service['slug'],'expiresAt'=>time()+600];
+            $_SESSION['mspace_charge']=['externalTrxId'=>$external,'referenceNo'=>$reference,'amount'=>$amount,'subscriberId'=>$subscriber,'userId'=>(int)$user['id'],'service'=>$service['slug'],'expiresAt'=>time()+600];
             Http::json(['ok'=>true,'message'=>'A charging OTP was sent to your mobile number.']);
         } catch (\Throwable $error) {
             if (isset($pdo,$external)) $pdo->prepare("UPDATE payment_transactions SET status='failed' WHERE user_id=? AND provider='mspace' AND external_reference=? AND status='authorized'")->execute([$user['id'],$external]);
@@ -484,8 +485,9 @@ final class ApiController {
                 error_log('mSpace CAAS OTP verification rejected: '.MspaceClient::diagnostic($response));
                 Http::json(['ok'=>false,'error'=>'The mSpace charging OTP is invalid or expired.'],422);
             }
+            $providerReference=substr(trim((string)($response['internalTrxId']??$charge['referenceNo'])),0,120);
             $update=Database::pdo()->prepare("UPDATE payment_transactions SET status='paid',provider_reference=? WHERE user_id=? AND provider='mspace' AND external_reference=? AND amount=? AND status='authorized'");
-            $update->execute([(string)($response['internalTrxId']??''),$user['id'],(string)$charge['externalTrxId'],(string)$charge['amount']]);
+            $update->execute([$providerReference,$user['id'],(string)$charge['externalTrxId'],(string)$charge['amount']]);
             if ($update->rowCount()!==1) Http::json(['ok'=>false,'error'=>'The payment record could not be confirmed. Contact support before retrying.'],409);
             $_SESSION['caas_paid_reference']=(string)$charge['externalTrxId'];
             $_SESSION['caas_paid_service']=(string)$charge['service'];
