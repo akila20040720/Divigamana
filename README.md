@@ -65,6 +65,11 @@ The mSpace CAAS integration uses the documented endpoints
 `MSPACE_LIVE` and `MSPACE_CAAS_LIVE` disabled until Mobitel has provisioned the
 application and allow-listed the production server IP.
 
+Authentication OTPs are routed by operator prefix. Mobitel `070` and `071` numbers use
+mSpace TAP SMS (`MSPACE_SMS_URL`), while all other supported Sri Lankan operators use
+IdeaMart. Configure the mSpace SMS source address in `MSPACE_SMS_SOURCE_ADDRESS`.
+Mobitel authentication uses SMS delivery and does not use the charging CAAS endpoint.
+
 ## Qwen production configuration
 
 Set `qwen.mock_mode` to `false`, then add the Alibaba Cloud Model Studio **production inference** key, authorised regional OpenAI-compatible base URL, and model ID. The current recommended Singapore endpoint is workspace-specific:

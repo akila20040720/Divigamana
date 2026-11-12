@@ -21,6 +21,9 @@ final class ApiController {
         if (substr($number,0,1)==='0') $number='94'.substr($number,1);
         return substr($number,0,2)==='94'&&strlen($number)===11 ? '+'.$number : null;
     }
+    private static function isMobitel(string $mobile): bool {
+        return preg_match('/^\+947[01]\d{7}$/',$mobile)===1;
+    }
     private static function maskMobile(string $mobile): string {
         return substr($mobile,0,4).'******'.substr($mobile,-2);
     }
@@ -126,6 +129,27 @@ final class ApiController {
         if (!$mobile) Http::json(['ok'=>false,'error'=>'Enter a valid Sri Lankan mobile number.'],422);
         $rateKey='otp:'.hash('sha256',$mobile.'|'.(string)($_SERVER['REMOTE_ADDR']??''));
         if (!self::development() && !self::rate($rateKey,60)) Http::json(['ok'=>false,'error'=>'Please wait before requesting another code.'],429);
+        if (self::isMobitel($mobile)) {
+            try {
+                $code=(string)random_int(100000,999999);
+                $response=(new MspaceClient())->sendSms('tel:'.substr($mobile,1),'Your Divigamana verification code is '.$code.'. It expires in 10 minutes.');
+                if (!MspaceClient::successful($response)) {
+                    unset($_SESSION['rate'][$rateKey]);
+                    error_log('mSpace OTP request rejected: '.MspaceClient::diagnostic($response));
+                    Http::json(['ok'=>false,'error'=>'Could not send the verification code. Please try again.'],502);
+                }
+                $_SESSION['otp_mobile']=$mobile;
+                $_SESSION['otp_provider']='mspace';
+                $_SESSION['otp_code_hash']=password_hash($code,PASSWORD_DEFAULT);
+                $_SESSION['otp_expires_at']=time()+600;
+                $_SESSION['otp_attempts']=0;
+                Http::json(['ok'=>true,'message'=>'A verification code was sent to your mobile number.']);
+            } catch (\Throwable $error) {
+                unset($_SESSION['rate'][$rateKey]);
+                error_log('mSpace OTP request transport failure: '.$error->getMessage());
+                Http::json(['ok'=>false,'error'=>'OTP service is temporarily unavailable.'],503);
+            }
+        }
         $ideamart=new IdeamartClient();
         if ($ideamart->enabled()) {
             try {
@@ -175,6 +199,13 @@ final class ApiController {
         }
         $_SESSION['otp_attempts']=(int)($_SESSION['otp_attempts']??0)+1;
         if ($_SESSION['otp_attempts']>3) Http::json(['ok'=>false,'error'=>'Too many verification attempts. Request a new code.'],429);
+        if (($_SESSION['otp_provider']??'ideamart')==='mspace') {
+            if (time()>(int)($_SESSION['otp_expires_at']??0)||!password_verify($code,(string)($_SESSION['otp_code_hash']??''))) {
+                Http::json(['ok'=>false,'error'=>'The verification code is invalid or expired. Request a new OTP and try again.'],422);
+            }
+            $subscriberId='tel:'.substr($mobile,1);
+            $subscriptionStatus='REGISTERED';
+        } else {
         $ideamart=new IdeamartClient();
         $subscriberId=null;
         $subscriptionStatus='';
@@ -204,6 +235,7 @@ final class ApiController {
                 Http::json(['ok'=>false,'error'=>'OTP service is temporarily unavailable.'],503);
             }
         } else Http::json(['ok'=>false,'error'=>'IdeaMart OTP verification is not configured.'],503);
+        }
         $pdo=null;
         try {
             $pdo=Database::pdo();
@@ -227,7 +259,7 @@ final class ApiController {
             $pdo->commit();
             self::touchLogin($pdo, (int)$user['id']);
             Session::login($user);
-            unset($_SESSION['otp_mobile'],$_SESSION['otp_reference'],$_SESSION['otp_attempts']);
+            unset($_SESSION['otp_mobile'],$_SESSION['otp_reference'],$_SESSION['otp_provider'],$_SESSION['otp_code_hash'],$_SESSION['otp_expires_at'],$_SESSION['otp_attempts']);
             Http::json(['ok'=>true,'user'=>Session::user(),'simulated'=>false]);
         } catch (\Throwable $error) {
             if ($pdo&&$pdo->inTransaction()) $pdo->rollBack();

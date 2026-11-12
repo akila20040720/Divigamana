@@ -26,6 +26,20 @@ final class MspaceClient
     }
     public function chargingEnabled(): bool { return $this->enabled()&&$this->caasLive; }
 
+    public function sendSms(string $subscriberId,string $message): array
+    {
+        self::requireSubscriber($subscriberId);
+        if ($message==='') throw new RuntimeException('Invalid mSpace SMS message.');
+        return $this->call('sms_url',[
+            'version'=>'1.0',
+            'message'=>$message,
+            'destinationAddresses'=>[$subscriberId],
+            'sourceAddress'=>(string)($this->config['sms_source_address']??''),
+            'deliveryStatusRequest'=>'0',
+            'encoding'=>'0',
+        ],false);
+    }
+
     public function generateChargeOtp(string $subscriberId,string $externalTrxId,string $amount): array
     {
         self::requireSubscriber($subscriberId); self::requireCharge($externalTrxId,$amount);
@@ -47,7 +61,11 @@ final class MspaceClient
 
     public static function successful(array $response): bool
     {
-        return (string)($response['statusCode']??'')==='S1000' && (($response['status']??true)!==false);
+        if ((string)($response['statusCode']??'')==='S1000' && (($response['status']??true)!==false)) return true;
+        foreach (($response['destinationResponses']??[]) as $destination) {
+            if (is_array($destination)&&($destination['statusCode']??'')==='S1000') return true;
+        }
+        return false;
     }
     public static function reference(array $response): string
     {
@@ -66,10 +84,10 @@ final class MspaceClient
         if (!preg_match('/^(?:0|[1-9]\d{0,7})\.\d{2}$/',$amount)||$amount==='0.00') throw new RuntimeException('Invalid charge amount.');
     }
 
-    private function call(string $urlKey,array $payload): array
+    private function call(string $urlKey,array $payload,bool $charging=true): array
     {
         if (!$this->enabled()) throw new RuntimeException('mSpace is disabled or credentials are not configured.');
-        if (!$this->caasLive) throw new RuntimeException('mSpace charging is disabled.');
+        if ($charging&&!$this->caasLive) throw new RuntimeException('mSpace charging is disabled.');
         $url=trim((string)($this->config[$urlKey]??''));
         if ($url===''||!filter_var($url,FILTER_VALIDATE_URL)||strtolower((string)parse_url($url,PHP_URL_SCHEME))!=='https') throw new RuntimeException('mSpace HTTPS endpoint is not configured: '.$urlKey);
         $body=array_merge(['applicationId'=>(string)$this->config['application_id'],'password'=>(string)$this->config['password']],$payload);
@@ -88,7 +106,10 @@ final class MspaceClient
         if ($failed||$http<200||$http>=300) throw new RuntimeException('mSpace request failed.');
         if (strlen((string)$raw)>1048576) throw new RuntimeException('mSpace response was too large.');
         $response=json_decode((string)$raw,true);
-        if (!is_array($response)||!isset($response['statusCode'])) throw new RuntimeException('mSpace returned an invalid response.');
+        if (!is_array($response)
+            || (!isset($response['statusCode'])&&!isset($response['destinationResponses']))) {
+            throw new RuntimeException('mSpace returned an invalid response.');
+        }
         return $response;
     }
 }

@@ -70,6 +70,16 @@ check(($mspaceRequests['caas_debit_url']['body']['paymentInstrumentName']??'')==
 check(($mspaceRequests['caas_otp_verify_url']['body']['sourceAddress']??'')==='tel:94710000000','mSpace OTP verification preserves the subscriber');
 check(MspaceClient::reference(['statusCode'=>'S1000','requestCorrelator'=>'safe-test-reference'])==='safe-test-reference','mSpace uses the documented request correlator');
 check(MspaceClient::successful(['statusCode'=>'S1000','status'=>true]),'mSpace accepts the documented successful OTP response');
+check(MspaceClient::successful(['destinationResponses'=>[['statusCode'=>'S1000']]]),'mSpace accepts the documented successful SMS response');
+$smsRequests=[];
+$fakeSms=static function(string $key,string $url,array $body) use (&$smsRequests): array {
+    $smsRequests[$key]=$body;
+    return ['destinationResponses'=>[['statusCode'=>'S1000']]];
+};
+$smsConfig=['application_id'=>'APP_TEST','password'=>'test-secret','sms_url'=>'https://example.test/sms','sms_source_address'=>'77000'];
+(new MspaceClient($smsConfig,$fakeSms,true,false))->sendSms('tel:94707000000','Your code is 123456.');
+check(($smsRequests['sms_url']['destinationAddresses'][0]??'')==='tel:94707000000','mSpace SMS preserves the destination subscriber');
+check(($smsRequests['sms_url']['sourceAddress']??'')==='77000','mSpace SMS uses the configured source address');
 $blocked=false; try { (new MspaceClient($mspaceConfig,$fakeMspace,true,false))->generateChargeOtp('tel:test','safe-id','20.00'); } catch (Throwable) { $blocked=true; }
 check($blocked,'mSpace debit is blocked when its CAAS switch is off');
 
