@@ -80,6 +80,13 @@ $smsConfig=['application_id'=>'APP_TEST','password'=>'test-secret','sms_url'=>'h
 (new MspaceClient($smsConfig,$fakeSms,true,false))->sendSms('tel:94707000000','Your code is 123456.');
 check(($smsRequests['sms_url']['destinationAddresses'][0]??'')==='tel:94707000000','mSpace SMS preserves the destination subscriber');
 check(($smsRequests['sms_url']['sourceAddress']??'')==='77000','mSpace SMS uses the configured source address');
+$smsFallbackRequests=[];
+$fallbackMspace=new MspaceClient(['application_id'=>'APP_TEST','password'=>'test-secret','sms_source_address'=>'77000'],static function(string $key,string $url,array $body) use (&$smsFallbackRequests): array {
+    $smsFallbackRequests=['key'=>$key,'url'=>$url,'body'=>$body];
+    return ['destinationResponses'=>[['statusCode'=>'S1000']]];
+},true,false);
+$fallbackMspace->sendSms('tel:94707000000','Your code is 123456.');
+check(($smsFallbackRequests['url']??'')==='https://api.mspace.lk/sms/send','mSpace SMS resolves the default endpoint when local config is stale');
 $blocked=false; try { (new MspaceClient($mspaceConfig,$fakeMspace,true,false))->generateChargeOtp('tel:test','safe-id','20.00'); } catch (Throwable) { $blocked=true; }
 check($blocked,'mSpace debit is blocked when its CAAS switch is off');
 

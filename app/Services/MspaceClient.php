@@ -89,6 +89,9 @@ final class MspaceClient
         if (!$this->enabled()) throw new RuntimeException('mSpace is disabled or credentials are not configured.');
         if ($charging&&!$this->caasLive) throw new RuntimeException('mSpace charging is disabled.');
         $url=trim((string)($this->config[$urlKey]??''));
+        if ($urlKey==='sms_url' && $url==='') {
+            $url=trim((string)(getenv('MSPACE_SMS_URL') ?: 'https://api.mspace.lk/sms/send'));
+        }
         if ($url===''||!filter_var($url,FILTER_VALIDATE_URL)||strtolower((string)parse_url($url,PHP_URL_SCHEME))!=='https') throw new RuntimeException('mSpace HTTPS endpoint is not configured: '.$urlKey);
         $body=array_merge(['applicationId'=>(string)$this->config['application_id'],'password'=>(string)$this->config['password']],$payload);
         if (is_callable($this->transport)) {
