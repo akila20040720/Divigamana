@@ -15,7 +15,11 @@ if (is_file(ROOT_PATH . '/.env')) {
         if ($value!=='' && (($value[0]==='"' && substr($value,-1)==='"') || ($value[0]==="'" && substr($value,-1)==="'"))) {
             $value=substr($value,1,-1);
         }
-        if ($name!=='' && getenv($name)===false) putenv($name.'='.$value);
+        // Treat an empty server variable as unset so .env remains usable under PHP-FPM/cPanel.
+        if ($name!=='') {
+            $existing=getenv($name);
+            if ($existing===false || $existing==='') putenv($name.'='.$value);
+        }
     }
 }
 $configPath = ROOT_PATH . '/config/local.php';
