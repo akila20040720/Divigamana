@@ -1,5 +1,3 @@
--- Run once on existing installations before configuring the IdeaMart callback.
--- It preserves existing local subscription records and adds provider callback details.
 ALTER TABLE user_subscriptions
     MODIFY COLUMN status ENUM('active','inactive','cancelled','expired','pending') NOT NULL,
     ADD COLUMN provider ENUM('simulated','ideamart','mspace') NOT NULL DEFAULT 'simulated' AFTER is_simulated,

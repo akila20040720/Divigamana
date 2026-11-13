@@ -1,59 +1,181 @@
+
 <?php
-// Copy this to config/local.php. Keep the real copy outside public_html where the host permits it.
-// Qwen keys are region-specific. Replace {WORKSPACE_ID} with your Model Studio workspace ID.
+/**
+ * Divigamana - Production Configuration
+ * File: config/local.php
+ *
+ * All configuration values are hardcoded.
+ * No .env file or getenv() required.
+ *
+ * SECURITY:
+ * - Never commit this file to Git.
+ * - Keep it outside public_html where possible.
+ * - Rotate exposed credentials before production use.
+ */
+
 return [
-    'app_env' => getenv('APP_ENV') ?: 'production',
-    'skip_database_check' => filter_var(getenv('SKIP_DATABASE_CHECK') ?: 'false', FILTER_VALIDATE_BOOLEAN),
-    'mspace_live' => filter_var(getenv('MSPACE_LIVE') ?: 'false', FILTER_VALIDATE_BOOLEAN),
-    'mspace_caas_live' => filter_var(getenv('MSPACE_CAAS_LIVE') ?: 'false', FILTER_VALIDATE_BOOLEAN),
-    'mspace' => [
-        'application_id' => getenv('MSPACE_APP_ID') ?: '',
-        'password' => getenv('MSPACE_PASSWORD') ?: '',
-        'otp_request_url' => getenv('MSPACE_OTP_REQUEST_URL') ?: 'https://api.mspace.lk/otp/request',
-        'otp_verify_url' => getenv('MSPACE_OTP_VERIFY_URL') ?: 'https://api.mspace.lk/otp/verify',
-        'sms_url' => getenv('MSPACE_SMS_URL') ?: 'https://api.mspace.lk/sms/send',
-        'sms_source_address' => getenv('MSPACE_SMS_SOURCE_ADDRESS') ?: '',
-        'caas_debit_url' => getenv('MSPACE_CAAS_DEBIT_URL') ?: 'https://api.mspace.lk/caas/direct/debit',
-        'caas_otp_verify_url' => getenv('MSPACE_CAAS_OTP_VERIFY_URL') ?: 'https://api.mspace.lk/caas/otp/verify',
+
+    /*
+    |--------------------------------------------------------------------------
+    | APPLICATION CONFIGURATION
+    |--------------------------------------------------------------------------
+    */
+
+    'app_env' => 'production',
+
+    'app_url' => 'https://divigamana.lk',
+
+    'demo_otp_enabled' => false,
+
+    'skip_database_check' => false,
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | ADMIN AUTHENTICATION
+    |--------------------------------------------------------------------------
+    */
+
+    'admin' => [
+        'username' => 'admin',
+        'password' => 'dc4cad4858b9fdebf7b508bd1d7c48bc8f73f0b6f6fb5d48',
     ],
-    'ideamart_live' => filter_var(getenv('IDEAMART_LIVE') ?: 'false', FILTER_VALIDATE_BOOLEAN),
-    'ideamart_caas_live' => filter_var(getenv('IDEAMART_CAAS_LIVE') ?: 'false', FILTER_VALIDATE_BOOLEAN),
-    'ideamart' => [
-        'application_id' => getenv('IDEAMART_APP_ID') ?: '',
-        'password' => getenv('IDEAMART_PASSWORD') ?: '',
-        'otp_request_url' => getenv('IDEAMART_OTP_REQUEST_URL') ?: 'https://api.ideamart.io/subscription/otp/request',
-        'otp_verify_url' => getenv('IDEAMART_OTP_VERIFY_URL') ?: 'https://api.ideamart.io/subscription/otp/verify',
-        'subscription_url' => getenv('IDEAMART_SUBSCRIPTION_SEND_URL') ?: 'https://api.ideamart.io/subscription/send',
-        'subscription_status_url' => getenv('IDEAMART_SUBSCRIPTION_STATUS_URL') ?: 'https://api.ideamart.io/subscription/getStatus',
-        'subscription_base_url' => getenv('IDEAMART_SUBSCRIPTION_QUERY_BASE_URL') ?: 'https://api.ideamart.io/subscription/query-base',
-        'caas_debit_url' => getenv('IDEAMART_CAAS_DEBIT_URL') ?: 'https://api.ideamart.io/caas/direct/debit',
-        'caas_balance_url' => getenv('IDEAMART_CAAS_BALANCE_URL') ?: 'https://api.ideamart.io/caas/balance/query',
-        'caas_account_id' => getenv('IDEAMART_CAAS_ACCOUNT_ID') ?: '',
-        'caas_payment_instrument' => getenv('IDEAMART_CAAS_PAYMENT_INSTRUMENT') ?: 'MobileAccount',
-        'caas_callback_token' => getenv('IDEAMART_CAAS_CALLBACK_TOKEN') ?: '',
-    ],
-    'app_url' => getenv('APP_URL') ?: 'https://divigamana.lk',
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | MYSQL DATABASE CONFIGURATION
+    |--------------------------------------------------------------------------
+    */
+
     'db' => [
-        'host'=>getenv('DB_HOST') ?: '127.0.0.1',
-        'port'=>(int)(getenv('DB_PORT') ?: 3306),
-        'socket'=>getenv('DB_SOCKET') ?: '',
-        'name'=>getenv('DB_NAME') ?: 'divigamana',
-        'user'=>getenv('DB_USER') ?: 'db_user',
-        'pass'=>getenv('DB_PASSWORD') ?: 'change-me',
+        'host' => 'localhost',
+        'port' => 3306,
+        'name' => 'rakiyacl_divigamana',
+        'user' => 'rakiyacl_divigamana_dash',
+        'pass' => 'Vjtseg_3348',
     ],
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | QWEN AI - ALIBABA CLOUD
+    |--------------------------------------------------------------------------
+    */
+
     'qwen' => [
-        'api_key' => getenv('QWEN_API_KEY') ?: '',
-        'base_url' => getenv('QWEN_BASE_URL') ?: 'https://{WORKSPACE_ID}.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1',
-        // Optional regional fallback override. Singapore workspace endpoints also fall back automatically to DashScope on connect errors.
-        'fallback_base_url' => getenv('QWEN_FALLBACK_BASE_URL') ?: '',
-        'model' => getenv('QWEN_MODEL') ?: 'qwen-plus',
-        // Keep this below the cPanel PHP max_execution_time. 45 seconds is a safe default.
-        'timeout_seconds' => 45,
-        'max_output_tokens' => 2200,
-        // Lower sampling keeps the structured readings consistent and grounded.
+
+        'api_key' => 'sk-ws-H.DIHRHRX.5Qy0.MEUCIQCYN39g1--N0eKUz9LhSN6ePmuu7yEX4vX9L5fc0ZtEmAIgLupbHtf2BdFw_ocZc7-x4unUJX0a2VbY2fZeVTZX3G4',
+
+        'base_url' => 'https://ws-7g2uwrhmspz0kmxb.ap-southeast-1.maas.aliyuncs.com/',
+
+        'fallback_base_url' => '',
+
+        'model' => 'qwen-plus',
+
+        'timeout_seconds' => 75,
+
+        'max_output_tokens' => 4000,
+
         'temperature' => 0.65,
-        'mock_mode' => filter_var(getenv('QWEN_MOCK_MODE') ?: 'true', FILTER_VALIDATE_BOOLEAN),
+
+        'mock_mode' => false,
     ],
-    // Rahu Kalaya uses a transparent Colombo time calculation, not an AI guess.
-    'rahu' => ['location'=>'Colombo, Sri Lanka','sunrise'=>'06:05','sunset'=>'18:20'],
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | IDEAMART - DIALOG CONFIGURATION
+    |--------------------------------------------------------------------------
+    */
+
+    'ideamart_live' => true,
+
+    'ideamart_caas_live' => true,
+
+    'ideamart' => [
+
+        'application_id' => 'APP_068524',
+
+        'password' => '5f5e14571230f6b8c701e57076e7c4c7',
+
+        'otp_request_url' =>
+            'https://api.ideamart.io/subscription/otp/request',
+
+        'otp_verify_url' =>
+            'https://api.ideamart.io/subscription/otp/verify',
+
+        'subscription_url' =>
+            'https://api.ideamart.io/subscription/send',
+
+        'subscription_status_url' =>
+            'https://api.ideamart.io/subscription/getStatus',
+
+        'subscription_base_url' =>
+            'https://api.ideamart.io/subscription/query-base',
+
+        'caas_debit_url' =>
+            'https://api.ideamart.io/caas/direct/debit',
+
+        'caas_balance_url' =>
+            'https://api.ideamart.io/caas/balance/query',
+
+        'caas_account_id' => '',
+
+        'caas_payment_instrument' => 'MobileAccount',
+
+        'caas_callback_token' => '',
+    ],
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | MSPACE - MOBITEL CONFIGURATION
+    |--------------------------------------------------------------------------
+    */
+
+    'mspace_live' => true,
+
+    'mspace_caas_live' => true,
+
+    'mspace' => [
+
+        'application_id' => 'APP_010616',
+
+        'password' => '79622018288754ef5f38521718b4d8cc',
+
+        'otp_request_url' =>
+            'https://api.mspace.lk/otp/request',
+
+        'otp_verify_url' =>
+            'https://api.mspace.lk/otp/verify',
+
+        'sms_url' =>
+            'https://api.mspace.lk/sms/send',
+
+        'sms_source_address' => '77010',
+
+        'caas_debit_url' =>
+            'https://api.mspace.lk/caas/direct/debit',
+
+        'caas_otp_verify_url' =>
+            'https://api.mspace.lk/caas/otp/verify',
+    ],
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | RAHU KALAYA CONFIGURATION
+    |--------------------------------------------------------------------------
+    */
+
+    'rahu' => [
+
+        'location' => 'Colombo, Sri Lanka',
+
+        'sunrise' => '06:05',
+
+        'sunset' => '18:20',
+    ],
+
 ];

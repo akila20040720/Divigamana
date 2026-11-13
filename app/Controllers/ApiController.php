@@ -624,16 +624,20 @@ final class ApiController {
                 $verified=$pdo->prepare('SELECT phone_verified_real FROM users WHERE id=? LIMIT 1');
                 $verified->execute([$user['id']]);
                 if (!$verified->fetchColumn()) Http::json(['ok'=>false,'error'=>'Verify your mobile number by OTP before using this service.'],403);
-                if ($service['paid']&&!(new IdeamartClient())->chargingEnabled()) Http::json(['ok'=>false,'error'=>'Carrier billing is temporarily unavailable.'],503);
+                $paymentProvider=self::isMobitel((string)$user['mobile_e164'])?'mspace':'ideamart';
+                $chargingAvailable=$paymentProvider==='mspace'
+                    ? (new MspaceClient())->chargingEnabled()
+                    : (new IdeamartClient())->chargingEnabled();
+                if ($service['paid']&&!$chargingAvailable) Http::json(['ok'=>false,'error'=>'Carrier billing is temporarily unavailable.'],503);
                 $paidChargeId=0;
                 if ($service['paid']) {
-                    $paidCharge=$pdo->prepare("SELECT id FROM payment_transactions WHERE user_id=? AND provider='ideamart' AND external_reference=? AND amount=? AND status='paid' AND (request_id IS NULL OR request_id=(SELECT id FROM horoscope_requests WHERE user_id=? AND idempotency_key=? LIMIT 1)) LIMIT 1");
-                    $paidCharge->execute([$user['id'],$chargeReference,$service['price_lkr'],$user['id'],$idempotency]);
+                    $paidCharge=$pdo->prepare("SELECT id FROM payment_transactions WHERE user_id=? AND provider=? AND external_reference=? AND amount=? AND status='paid' AND (request_id IS NULL OR request_id=(SELECT id FROM horoscope_requests WHERE user_id=? AND idempotency_key=? LIMIT 1)) LIMIT 1");
+                    $paidCharge->execute([$user['id'],$paymentProvider,$chargeReference,$service['price_lkr'],$user['id'],$idempotency]);
                     $paidChargeId=(int)$paidCharge->fetchColumn();
                     if ($paidChargeId===0) Http::json(['ok'=>false,'error'=>'The mobile carrier charge was not confirmed. Please try the payment again before starting this reading.'],402);
                 }
-                $existing=$pdo->prepare("SELECT q.id,q.status,r.result_json,p.status payment_status FROM horoscope_requests q LEFT JOIN horoscope_results r ON r.request_id=q.id LEFT JOIN payment_transactions p ON p.request_id=q.id AND p.provider='ideamart' WHERE q.user_id=? AND q.idempotency_key=? LIMIT 1");
-                $existing->execute([$user['id'],$idempotency]);
+                $existing=$pdo->prepare("SELECT q.id,q.status,r.result_json,p.status payment_status FROM horoscope_requests q LEFT JOIN horoscope_results r ON r.request_id=q.id LEFT JOIN payment_transactions p ON p.request_id=q.id AND p.provider=? WHERE q.user_id=? AND q.idempotency_key=? LIMIT 1");
+                $existing->execute([$paymentProvider,$user['id'],$idempotency]);
                 $existingRow=$existing->fetch();
                 if ($existingRow&&!empty($existingRow['result_json'])) Http::json(['ok'=>true,'result'=>json_decode($existingRow['result_json'],true),'cached'=>true]);
                 $context=self::readingContext($pdo,(int)$user['id'],(int)$service['id']);
@@ -650,8 +654,8 @@ final class ApiController {
                     $pdo->prepare("INSERT INTO horoscope_requests (user_id,service_id,status,locale,questionnaire_json,idempotency_key) VALUES (?,?, 'processing',?,?,?)")->execute([$user['id'],$service['id'],$input['locale']??'si-LK',json_encode($answers,JSON_UNESCAPED_UNICODE),$idempotency]);
                     $requestId=(int)$pdo->lastInsertId();
                     if ($service['paid']) {
-                        $claim=$pdo->prepare("UPDATE payment_transactions SET request_id=?,description=? WHERE id=? AND provider='ideamart' AND status='paid' AND request_id IS NULL");
-                        $claim->execute([$requestId,'IdeaMart CAAS '.$service['slug'].' one-time charge',$paidChargeId]);
+                        $claim=$pdo->prepare("UPDATE payment_transactions SET request_id=?,description=? WHERE id=? AND provider=? AND status='paid' AND request_id IS NULL");
+                        $claim->execute([$requestId,ucfirst($paymentProvider).' CAAS '.$service['slug'].' one-time charge',$paidChargeId,$paymentProvider]);
                         if ($claim->rowCount()!==1) {
                             $pdo->rollBack();
                             Http::json(['ok'=>false,'error'=>'The confirmed carrier charge is already being used. Please start the payment again.'],409);
