@@ -64,13 +64,13 @@ final class ApiController {
         if (in_array($frequency,['yearly','year','annual'],true)) return 'DATE_ADD(NOW(),INTERVAL 1 YEAR)';
         return 'DATE_ADD(NOW(),INTERVAL 1 DAY)';
     }
-    private static function saveIdeamartSubscription($pdo,int $userId,string $providerStatus,string $frequency='',?string $notifiedAt=null): void {
+    private static function saveProviderSubscription($pdo,int $userId,string $provider,string $providerStatus,string $frequency='',?string $notifiedAt=null): void {
         $status=self::subscriptionState($providerStatus);
-        // IdeaMart does not send a notification ID. Update only the latest row when
+        // Providers do not send a notification ID. Update only the latest row when
         // a callback repeats the current state; a state change gets a new history row.
         $normalizedProviderStatus=strtoupper(trim($providerStatus));
-        $existing=$pdo->prepare("SELECT id,frequency,provider_status FROM user_subscriptions WHERE user_id=? AND provider='ideamart' ORDER BY id DESC LIMIT 1");
-        $existing->execute([$userId]);
+        $existing=$pdo->prepare("SELECT id,frequency,provider_status FROM user_subscriptions WHERE user_id=? AND provider=? ORDER BY id DESC LIMIT 1");
+        $existing->execute([$userId,$provider]);
         $row=$existing->fetch(\PDO::FETCH_ASSOC);
         if ($row&&strtoupper((string)$row['provider_status'])===$normalizedProviderStatus) {
             $effectiveFrequency=$frequency!==''?$frequency:(string)($row['frequency']??'');
@@ -79,7 +79,10 @@ final class ApiController {
             return;
         }
         $endsAt=$status==='active'?self::subscriptionEndSql($frequency):'NOW()';
-        $pdo->prepare("INSERT INTO user_subscriptions (user_id,status,is_simulated,provider,provider_status,frequency,accepted_at,starts_at,ends_at,notified_at) VALUES (?,?,0,'ideamart',?,?,NOW(),NOW(),$endsAt,COALESCE(?,NOW()))")->execute([$userId,$status,strtoupper(trim($providerStatus)),$frequency,$notifiedAt]);
+        $pdo->prepare("INSERT INTO user_subscriptions (user_id,status,is_simulated,provider,provider_status,frequency,accepted_at,starts_at,ends_at,notified_at) VALUES (?,?,0,?,?,?,NOW(),NOW(),$endsAt,COALESCE(?,NOW()))")->execute([$userId,$status,$provider,$normalizedProviderStatus,$frequency,$notifiedAt]);
+    }
+    private static function saveIdeamartSubscription($pdo,int $userId,string $providerStatus,string $frequency='',?string $notifiedAt=null): void {
+        self::saveProviderSubscription($pdo,$userId,'ideamart',$providerStatus,$frequency,$notifiedAt);
     }
     private static function acknowledgeIdeamartCallback(): void {
         http_response_code(200);
@@ -215,6 +218,7 @@ final class ApiController {
         }
         $_SESSION['otp_attempts']=(int)($_SESSION['otp_attempts']??0)+1;
         if ($_SESSION['otp_attempts']>3) Http::json(['ok'=>false,'error'=>'Too many verification attempts. Request a new code.'],429);
+        $mspaceSubscriberId=null;
         if (($_SESSION['otp_provider']??'ideamart')==='mspace') {
             try {
                 $response=(new MspaceClient())->otpVerify((string)($_SESSION['otp_reference']??''),$code);
@@ -274,7 +278,7 @@ final class ApiController {
             if (!$user) {
                 $pdo->prepare("INSERT INTO users (mobile_e164,ideamart_subscriber_id,mspace_subscriber_id,otp_verified_demo,phone_verified_real,role) VALUES (?,?,?,0,1,'user')")->execute([$mobile,$subscriberId??null,$mspaceSubscriberId??null]);
                 $id=(int)$pdo->lastInsertId();
-                self::saveIdeamartSubscription($pdo,$id,$subscriptionStatus);
+                self::saveProviderSubscription($pdo,$id,$mspaceSubscriberId!==null?'mspace':'ideamart',$subscriptionStatus);
                 $user=['id'=>$id,'mobile_e164'=>$mobile,'role'=>'user'];
             } else {
                 if (($user['account_status'] ?? 'active') === 'blocked') {
@@ -282,7 +286,7 @@ final class ApiController {
                     Http::json(['ok'=>false,'error'=>'This account has been blocked. Contact support for assistance.'],403);
                 }
                 $pdo->prepare('UPDATE users SET otp_verified_demo=0,phone_verified_real=1,ideamart_subscriber_id=COALESCE(?,ideamart_subscriber_id),mspace_subscriber_id=COALESCE(?,mspace_subscriber_id) WHERE id=?')->execute([$subscriberId??null,$mspaceSubscriberId??null,$user['id']]);
-                self::saveIdeamartSubscription($pdo,(int)$user['id'],$subscriptionStatus);
+                self::saveProviderSubscription($pdo,(int)$user['id'],$mspaceSubscriberId!==null?'mspace':'ideamart',$subscriptionStatus);
             }
             $pdo->commit();
             self::touchLogin($pdo, (int)$user['id']);
@@ -570,6 +574,7 @@ final class ApiController {
             $statement=$pdo->prepare('SELECT phone_verified_real FROM users WHERE id=? LIMIT 1');
             $statement->execute([$user['id']]);
             $verified=(bool)$statement->fetchColumn();
+            self::touchLogin($pdo,(int)$user['id']);
             Http::json(['ok'=>true,'authenticated'=>true,'user'=>$user,'subscribed'=>$verified,'subscription'=>null]);
         } catch (\Throwable $error) { self::databaseFailure($error); }
     }

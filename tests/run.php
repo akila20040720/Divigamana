@@ -115,6 +115,8 @@ check(($routes['subscription']['handler'][1]??'')==='subscribe','subscription en
 $controllerSource=file_get_contents(dirname(__DIR__).'/app/Controllers/ApiController.php');
 check(is_string($controllerSource)&&str_contains($controllerSource,"new IdeamartClient())->chargingEnabled()")&&str_contains($controllerSource,"new MspaceClient())->chargingEnabled()"),'paid readings use the selected carrier CAAS gate');
 check(is_string($controllerSource)&&str_contains($controllerSource,"provider=? AND external_reference"),'paid readings reconcile the selected carrier payment');
+check(is_string($controllerSource)&&str_contains($controllerSource,"saveProviderSubscription"),'provider subscriptions are persisted under the verified carrier');
+check(is_string($controllerSource)&&str_contains($controllerSource,"self::touchLogin(\$pdo,(int)\$user['id'])"),'authenticated status refreshes the last-login timestamp');
 check(is_string($controllerSource)&&str_contains($controllerSource,'mSpace rejected this number. Confirm it is an active Mobitel 070 or 071 number'),'Mobitel OTP remains on mSpace when the provider rejects the recipient');
 $prices=array_values(array_unique(array_column(array_filter(Divigamana\Services\ServiceCatalog::all(),static fn(array $service): bool=>$service['paid']),'price_lkr')));
 check($prices===['20.00'],'all paid readings have a fixed one-time LKR 20.00 price');
