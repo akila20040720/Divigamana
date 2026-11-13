@@ -6,10 +6,11 @@
 deployment:
   tasks:
     - export DEPLOYPATH=/home/rakiyacl/divigamana.lk
-    - /bin/rm -f "$DEPLOYPATH/admin/index.php"
-    - /bin/rmdir "$DEPLOYPATH/admin" 2>/dev/null || true
-    - /bin/mkdir -p "$DEPLOYPATH/public" "$DEPLOYPATH/app" "$DEPLOYPATH/config"
+    - /bin/mkdir -p "$DEPLOYPATH/public" "$DEPLOYPATH/app" "$DEPLOYPATH/config" "$DEPLOYPATH/admin" "$DEPLOYPATH/database" "$DEPLOYPATH/scripts"
     - /bin/cp index.php terms.php privacy.php api.php robots.txt sitemap.xml .htaccess "$DEPLOYPATH/"
+    - /bin/cp database/schema.sql database/seed.sql "$DEPLOYPATH/database/"
+    - /bin/cp scripts/migrate-dashboard.php "$DEPLOYPATH/scripts/"
+    - /bin/cp admin/index.php "$DEPLOYPATH/admin/"
     - /bin/cp -R app/* "$DEPLOYPATH/app/"
     - /bin/cp config/local.php "$DEPLOYPATH/config/"
     - /bin/cp -R public/assets "$DEPLOYPATH/public/"

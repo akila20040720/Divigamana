@@ -1,0 +1,34 @@
+<?php
+declare(strict_types=1);
+if (PHP_SAPI!=='cli') exit(1);
+require dirname(__DIR__).'/app/Services/AdminDashboard.php';
+use Divigamana\Services\AdminDashboard;
+$db=new PDO('sqlite::memory:',null,null,[PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION]);
+$db->exec('CREATE TABLE users (id INTEGER PRIMARY KEY, mobile_e164 TEXT, account_status TEXT, phone_verified_real INTEGER, ideamart_subscriber_id TEXT, mspace_subscriber_id TEXT, created_at TEXT, last_login_at TEXT)');
+$db->exec('CREATE TABLE user_subscriptions (id INTEGER PRIMARY KEY, user_id INTEGER, provider TEXT, status TEXT, starts_at TEXT, ends_at TEXT, accepted_at TEXT)');
+$insert=$db->prepare('INSERT INTO users VALUES (?,?,?,?,?,?,?,?)');
+$insert->execute([1,'+94771234567','active',1,'idea-1',null,'2026-01-01 10:00:00',null]);
+$insert->execute([2,'+94711234567','blocked',1,null,'mspace-2','2026-01-02 10:00:00',null]);
+$insert->execute([3,'+94751234567','active',0,null,null,'2026-01-03 10:00:00',null]);
+$sub=$db->prepare('INSERT INTO user_subscriptions VALUES (?,?,?,?,?,?,?)');
+$before=date('Y-m-d H:i:s',time()-3600); $after=date('Y-m-d H:i:s',time()+3600);
+$sub->execute([1,1,'ideamart','active',$before,$after,$before]);
+$sub->execute([2,1,'ideamart','cancelled',$before,$after,$before]);
+$sub->execute([3,2,'mspace','active',$before,$after,$before]);
+$sub->execute([4,3,'ideamart','active','2020-01-01 00:00:00','2020-01-02 00:00:00',$before]);
+$reporter=new AdminDashboard($db);
+$filters=['from'=>'','to'=>'','provider'=>'','verification'=>'','search'=>''];
+$r=$reporter->report($filters);
+function expect(bool $condition,string $label): void { if (!$condition) { fwrite(STDERR,"FAIL $label\n"); exit(1); } echo "PASS $label\n"; }
+expect((int)$r['summary']['total']===3 && (int)$r['summary']['active']===1 && (int)$r['summary']['inactive']===2 && (int)$r['summary']['blocked']===1,'summary uses current latest provider state and expiry');
+$by=[]; foreach ($r['funnel'] as $row) $by[$row['provider']]=$row;
+expect((int)$by['dialog']['total']===1 && (int)$by['mobitel']['active']===1 && (int)$by['airtel']['verified']===0,'provider funnel uses mobile prefixes and current states');
+expect((int)$r['verification']['ideamart']===1 && (int)$r['verification']['mspace']===1 && count($r['subscriptions'])===3,'verification and rolling subscription groups');
+$filters=['from'=>'2026-01-02','to'=>'2026-01-02','provider'=>'mobitel','verification'=>'mspace','search'=>'9471123'];
+$r=$reporter->report($filters);
+expect($r['count']===1 && $r['users'][0]['mobile_e164']==='+94711234567' && (int)$r['verification']['mspace']===1,'date, provider, verification and number filters combine');
+$filters['verification']='unverified';
+expect($reporter->report($filters)['count']===0,'verification filter excludes other states');
+for ($i=4;$i<=30;$i++) $insert->execute([$i,'+9477'.str_pad((string)$i,7,'0',STR_PAD_LEFT),'active',0,null,null,'2026-01-04 10:00:00',null]);
+$r=$reporter->report(['from'=>'','to'=>'','provider'=>'','verification'=>'','search'=>''],2);
+expect($r['pages']===2 && count($r['users'])===5,'user directory paginates');

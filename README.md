@@ -39,6 +39,16 @@ mSpace OTP verification, which is required for subsequent CaaS requests.
 Do not import `schema.sql` over an existing database: it is for fresh installations. The seed uses `INSERT IGNORE` so it
 can add missing catalog entries without overwriting existing service settings or users.
 
+## Subscriber administration
+
+Visit `/admin/` and sign in with `ADMIN_USERNAME` and `ADMIN_PASSWORD` from `.env` (or the `admin` settings in `config/local.php` if the environment values are absent). Keep these credentials private. The dashboard reads the live application database on every request.
+
+For a new, empty database, import `database/schema.sql` and then `database/seed.sql`. For an existing installation, **do not drop or reimport the database**: run `php scripts/migrate-dashboard.php` on the server after taking a backup. This adds missing dashboard fields and indexes and runs the non-destructive catalog seed. It is safe to rerun, but it only migrates the fields needed by the dashboard; apply any other applicable application migrations separately. Existing subscription records are classified as IdeaMart only where the provider was missing and an IdeaMart subscriber ID identifies them. MySQL DDL can commit each change separately, so a failed migration may be rerun after correcting the cause.
+
+The overview counts users with a current, unexpired active subscription, using the most recent record per provider. Inactive means users with no such subscription; blocked users can overlap either count. Provider counts use mobile prefixes. The verification report and directory filters use the user's **join date** and current verification state, because the database does not store when verification happened. The last 24 hours report groups subscription records by `accepted_at` and their current recorded status; an update to an existing record does not create a new event. Historical subscription data is limited to records already stored by the application.
+
+Run `php tests/admin_dashboard.php` to exercise reporting and filters with an in-memory database.
+
 ## Billing verification
 
 Run the offline route and carrier-contract suite. It does not contact a carrier or move

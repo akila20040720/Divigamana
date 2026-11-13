@@ -361,8 +361,8 @@ final class ApiController {
     public static function subscriptionBase(): void {
         $input=Http::input(); Http::requirePostCsrf($input);
         $admin=APP_CONFIG['admin']??[];
-        $username=(string)($admin['username']??'');
-        $password=(string)($admin['password']??'');
+        $username=(string)(getenv('ADMIN_USERNAME') ?: ($admin['username']??''));
+        $password=(string)(getenv('ADMIN_PASSWORD') ?: ($admin['password']??''));
         if ($username===''||$password==='') Http::json(['ok'=>false,'error'=>'Administrator access is not configured.'],503);
         $fingerprint=hash('sha256',$username."\0".$password);
         if (!isset($_SESSION['admin_fingerprint'])||!hash_equals($fingerprint,(string)$_SESSION['admin_fingerprint'])) Http::json(['ok'=>false,'error'=>'Administrator access required.'],403);
