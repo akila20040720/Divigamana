@@ -30,11 +30,14 @@ final class MspaceClient
     {
         self::requireSubscriber($subscriberId);
         if ($message==='') throw new RuntimeException('Invalid mSpace SMS message.');
+        $sourceAddress=trim((string)($this->config['sms_source_address']??''));
+        if ($sourceAddress==='') $sourceAddress=trim((string)(getenv('MSPACE_SMS_SOURCE_ADDRESS') ?: ''));
+        if ($sourceAddress==='') throw new RuntimeException('mSpace SMS source address is not configured.');
         return $this->call('sms_url',[
             'version'=>'1.0',
             'message'=>$message,
             'destinationAddresses'=>[$subscriberId],
-            'sourceAddress'=>(string)($this->config['sms_source_address']??''),
+            'sourceAddress'=>$sourceAddress,
             'deliveryStatusRequest'=>'0',
             'encoding'=>'0',
         ],false);
