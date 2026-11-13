@@ -50,6 +50,15 @@ For existing databases, run [`database/migration_mspace_subscriber.sql`](databas
 before enabling the mSpace OTP flow. It stores the masked subscriber identity returned by
 mSpace OTP verification, which is required for subsequent CaaS requests.
 
+The subscriber dashboard reads live user and subscription records. Its provider counts use
+mobile-number prefixes; the verification date is the user's joined date, since historical
+verification timestamps are not stored. Subscription activity covers real active records
+accepted in the rolling 24-hour window. Apply
+[`database/migration_subscriber_dashboard.sql`](database/migration_subscriber_dashboard.sql)
+once to an existing installation for the reporting index. Do not import `schema.sql` over
+an existing database: it is for fresh installations. The seed uses `INSERT IGNORE` so it
+can add missing catalog entries without overwriting existing service settings or users.
+
 ## Billing verification
 
 Run the offline route and carrier-contract suite. It does not contact a carrier or move

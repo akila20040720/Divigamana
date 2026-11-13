@@ -232,6 +232,7 @@ final class ApiController {
                     Http::json(['ok'=>false,'error'=>'Mobile verification succeeded, but mSpace returned no subscriber identity. Please try again.'],502);
                 }
                 $mspaceSubscriberId=$subscriberId;
+                $subscriberId=null; // The mSpace identity must not be stored as an IdeaMart identity.
                 $subscriptionStatus=strtoupper(trim((string)($response['subscriptionStatus']??'REGISTERED')));
             } catch (\Throwable $error) {
                 error_log('mSpace OTP verification failed: '.$error->getMessage());

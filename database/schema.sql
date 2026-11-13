@@ -47,6 +47,7 @@ CREATE TABLE user_subscriptions (
     INDEX idx_subscriptions_user_status (user_id, status, ends_at),
     INDEX idx_subscriptions_provider_status (provider, provider_status),
     INDEX idx_subscriptions_provider_accepted (provider, is_simulated, accepted_at),
+    INDEX idx_subscriptions_accepted (accepted_at),
     INDEX idx_subscriptions_user_latest (user_id, id),
     CONSTRAINT fk_subscriptions_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

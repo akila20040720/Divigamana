@@ -9,13 +9,6 @@ use Divigamana\Support\Database;
 
 function e($value): string { return htmlspecialchars((string)$value, ENT_QUOTES, 'UTF-8'); }
 function n($value): string { global $databaseError; return !empty($databaseError)?'—':number_format((int)$value); }
-function money($value): string { global $databaseError; return !empty($databaseError)?'—':'LKR ' . number_format((float)$value, 2); }
-function percent($value,$total): string { global $databaseError; return !empty($databaseError)?'—':number_format($total?(float)$value*100/(float)$total:0,2).'%'; }
-function carrierPlatform(string $mobile): string {
-    if (preg_match('/^\\+947[01]\\d{7}$/', $mobile)) return 'mSpace';
-    if (preg_match('/^\\+947[245678]\\d{7}$/', $mobile)) return 'IdeaMart';
-    return 'Unknown';
-}
 function validDay(string $value): string {
     $date=DateTimeImmutable::createFromFormat('!Y-m-d',$value,new DateTimeZone('Asia/Colombo'));
     $errors=DateTimeImmutable::getLastErrors();
@@ -63,6 +56,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !$authenticated) {
 if (!$authenticated) :
 ?><!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Admin sign in | Divigamana</title><style>:root{color-scheme:dark}*{box-sizing:border-box}body{min-height:100vh;margin:0;display:grid;place-items:center;padding:24px;background:radial-gradient(circle at 20% 15%,#292158 0,transparent 34%),#0b1026;color:#f9f5ed;font-family:Inter,system-ui,sans-serif}.panel{width:min(100%,420px);padding:34px;border:1px solid #ffffff22;border-radius:18px;background:#171333;box-shadow:0 24px 70px #0007}.mark{display:grid;place-items:center;width:46px;height:46px;border-radius:14px;background:#d5ad63;color:#171333;font-size:24px;font-weight:800}h1{margin:20px 0 7px;font-size:1.7rem}p{color:#c8c2d8;line-height:1.5}label{display:block;margin-top:18px;color:#e8e0f2;font-size:.9rem;font-weight:600}input{width:100%;margin-top:7px;padding:13px;border:1px solid #ffffff26;border-radius:9px;background:#0e0b22;color:#fff;font:inherit}button{width:100%;margin-top:24px;padding:13px;border:0;border-radius:9px;background:#d5ad63;color:#171333;font:700 1rem inherit;cursor:pointer}.error{margin:18px 0 0;padding:11px;border-radius:8px;background:#56232d;color:#ffdce0}.back{display:block;margin-top:20px;text-align:center;color:#d5ad63;font-size:.9rem;text-decoration:none}</style></head><body><main class="panel"><div class="mark">දි</div><h1>Divigamana Admin</h1><p>Sign in to manage users and view platform activity.</p><?php if ($error): ?><div class="error" role="alert"><?= e($error) ?></div><?php endif; ?><form method="post" autocomplete="off"><input type="hidden" name="csrf" value="<?= e(Csrf::token()) ?>"><label>Username<input name="username" required autofocus autocomplete="username"></label><label>Password<input name="password" type="password" required autocomplete="current-password"></label><button>Sign in</button></form><a class="back" href="/">← Return to Divigamana.lk</a></main></body></html><?php exit; endif;
 
+// Preserve only dashboard filters when redirecting after an account action.
+$allowedProviders = ['' => 'All providers', 'dialog' => 'Dialog', 'mobitel' => 'Mobitel', 'airtel' => 'Airtel', 'hutch' => 'Hutch', 'unknown' => 'Other'];
+$allowedVerification = ['' => 'All verification states', 'ideamart' => 'IdeaMart verified', 'mspace' => 'mSpace verified', 'unknown' => 'Verified · platform unknown', 'unverified' => 'Not verified'];
+$allowedStates = ['' => 'All account states', 'active' => 'Active account', 'blocked' => 'Blocked account'];
+function filterParams(array $input): array {
+    global $allowedProviders, $allowedVerification, $allowedStates;
+    $rawDay = is_string($input['day'] ?? null) ? $input['day'] : '';
+    $date = $rawDay !== '' && validDay($rawDay) === $rawDay ? $rawDay : '';
+    $q = is_string($input['q'] ?? null) ? substr(trim($input['q']), 0, 40) : '';
+    $provider = is_string($input['provider'] ?? null) ? $input['provider'] : '';
+    $verification = is_string($input['verification'] ?? null) ? $input['verification'] : '';
+    $state = is_string($input['state'] ?? null) ? $input['state'] : '';
+    return ['day' => $date, 'q' => $q, 'provider' => isset($allowedProviders[$provider]) ? $provider : '',
+        'verification' => isset($allowedVerification[$verification]) ? $verification : '',
+        'state' => isset($allowedStates[$state]) ? $state : '',
+        'page' => max(1, min(100000, is_scalar($input['page'] ?? null) ? (int)$input['page'] : 1))];
+}
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!Csrf::verify($_POST['csrf'] ?? null)) {
         http_response_code(419);
@@ -77,152 +88,127 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = (string)($_POST['action'] ?? '');
     $id = (int)($_POST['user_id'] ?? 0);
     if ($id > 0 && in_array($action, ['block', 'unblock'], true)) {
-        $returnParams=[];
-        parse_str(ltrim((string)($_POST['return_to']??''),'?'),$returnParams);
-        $returnDay=validDay(is_string($returnParams['day']??null)?$returnParams['day']:date('Y-m-d'));
-        $returnQuery=mb_substr(trim(is_string($returnParams['q']??null)?$returnParams['q']:''),0,100);
-        $returnStatus=is_string($returnParams['status']??null)?$returnParams['status']:'';
-        if (!in_array($returnStatus,['','active','inactive','pending','blocked'],true)) $returnStatus='';
-        $returnScope=($returnParams['scope']??'')==='all'?'all':'day';
-        $returnPage=max(1,min(100000,(int)($returnParams['page']??1)));
-        $safeReturn=qs(['day'=>$returnDay===date('Y-m-d')?'':$returnDay,'q'=>$returnQuery,'status'=>$returnStatus,'scope'=>$returnScope==='all'?'all':'','page'=>$returnPage>1?$returnPage:null]);
+        $returnParams = [];
+        parse_str(ltrim((string)($_POST['return_to'] ?? ''), '?'), $returnParams);
+        $returnParams = filterParams($returnParams);
         try {
             $pdo = Database::pdo();
-            $blocked = $action === 'block';
             $pdo->beginTransaction();
-            $find=$pdo->prepare('SELECT role,account_status FROM users WHERE id=? FOR UPDATE');
+            $find = $pdo->prepare('SELECT role, account_status FROM users WHERE id=? FOR UPDATE');
             $find->execute([$id]);
-            $target=$find->fetch();
-            $newStatus=$blocked?'blocked':'active';
-            if (!$target||$target['role']==='admin') {
+            $target = $find->fetch();
+            $blocked = $action === 'block';
+            $newStatus = $blocked ? 'blocked' : 'active';
+            if (!$target || $target['role'] === 'admin') {
                 $pdo->rollBack();
-                $_SESSION['admin_flash']='That customer account could not be found.';
-            } elseif ($target['account_status']===$newStatus) {
+                $_SESSION['admin_flash'] = 'That customer account could not be found.';
+            } elseif ($target['account_status'] === $newStatus) {
                 $pdo->rollBack();
-                $_SESSION['admin_flash']='The account already has that status.';
+                $_SESSION['admin_flash'] = 'The account already has that status.';
             } else {
-                $pdo->prepare('UPDATE users SET account_status=?,blocked_at=? WHERE id=?')->execute([$newStatus,$blocked?date('Y-m-d H:i:s'):null,$id]);
-                $metadata=json_encode(['source'=>'admin_dashboard','admin_username'=>$adminUsername,'reason'=>mb_substr(trim((string)($_POST['reason']??'')),0,240)],JSON_UNESCAPED_UNICODE|JSON_THROW_ON_ERROR);
-                $pdo->prepare('INSERT INTO audit_events (user_id,event_type,metadata_json) VALUES (?,?,?)')->execute([$id,$blocked?'admin_user_blocked':'admin_user_unblocked',$metadata]);
+                $pdo->prepare('UPDATE users SET account_status=?, blocked_at=? WHERE id=?')->execute([$newStatus, $blocked ? date('Y-m-d H:i:s') : null, $id]);
+                $metadata = json_encode(['source' => 'admin_dashboard', 'admin_username' => $adminUsername], JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
+                $pdo->prepare('INSERT INTO audit_events (user_id,event_type,metadata_json) VALUES (?,?,?)')->execute([$id, $blocked ? 'admin_user_blocked' : 'admin_user_unblocked', $metadata]);
                 $pdo->commit();
-                $_SESSION['admin_flash']=$blocked?'Account blocked.':'Account unblocked.';
+                $_SESSION['admin_flash'] = $blocked ? 'Account blocked.' : 'Account unblocked.';
             }
         } catch (Throwable $exception) {
-            if (isset($pdo)&&$pdo->inTransaction()) $pdo->rollBack();
+            if (isset($pdo) && $pdo->inTransaction()) $pdo->rollBack();
             error_log('Divigamana admin user action error: ' . $exception->getMessage());
-            $_SESSION['admin_flash']='The account update could not be completed.';
+            $_SESSION['admin_flash'] = 'The account update could not be completed.';
         }
-        header('Location: /admin' . $safeReturn);
+        header('Location: /admin' . qs($returnParams));
         exit;
     }
 }
 
-$dayRaw=$_GET['day']??'';
-$day = validDay(is_string($dayRaw)?$dayRaw:'');
-$today = date('Y-m-d');
-$prev = date('Y-m-d', strtotime($day . ' -1 day'));
-$next = date('Y-m-d', strtotime($day . ' +1 day'));
-$queryRaw=$_GET['q']??'';
-$query = is_string($queryRaw)?trim($queryRaw):'';
-$query=mb_substr($query,0,100);
-$scope=($_GET['scope']??'')==='day'?'day':'all';
-$page=max(1,min(100000,is_scalar($_GET['page']??null)?(int)$_GET['page']:1));
-$pageSize=50;
-$filter = is_string($_GET['status']??null)?$_GET['status']:'';
-$filters = ['' => 'All users', 'active' => 'Active subscription', 'inactive' => 'Inactive / expired','pending'=>'Pending verification', 'blocked' => 'Blocked'];
-if (!isset($filters[$filter])) $filter = '';
-$returnTo = qs(['day' => $day === $today ? '' : $day, 'q' => $query, 'status' => $filter,'scope'=>$scope==='all'?'all':'','page'=>$page>1?$page:null]);
-
-$providerExpr = "CASE WHEN u.mobile_e164 LIKE '+9470%' OR u.mobile_e164 LIKE '+9471%' THEN 'mSpace' WHEN u.mobile_e164 LIKE '+9472%' OR u.mobile_e164 LIKE '+9474%' OR u.mobile_e164 LIKE '+9475%' OR u.mobile_e164 LIKE '+9476%' OR u.mobile_e164 LIKE '+9477%' OR u.mobile_e164 LIKE '+9478%' THEN 'IdeaMart' ELSE 'Unknown' END";
-$realUserExpr = "u.phone_verified_real=1";
-$customerExpr = "COALESCE(u.role,'user')<>'admin'";
-// Carrier callbacks are authoritative. A registered IdeaMart subscriber remains active
-// even when the locally estimated end date is stale; cancelled/pending callbacks do not.
-$activeExpr = "COALESCE(u.account_status,'active')='active' AND COALESCE((SELECT CASE WHEN us.provider='ideamart' THEN us.provider_status='REGISTERED' ELSE us.status='active' AND us.ends_at>NOW() END FROM user_subscriptions us WHERE us.user_id=u.id ORDER BY us.id DESC LIMIT 1),0)";
-$stats = ['all' => 0, 'active' => 0, 'inactive' => 0, 'blocked' => 0, 'new' => 0, 'logins' => 0];
-$providers = [];
-$providerBase = ['mSpace' => 0, 'IdeaMart' => 0, 'Unknown' => 0];
-$platforms = ['mSpace' => ['new_users' => 0, 'active' => 0, 'inactive' => 0], 'IdeaMart' => ['new_users' => 0, 'active' => 0, 'inactive' => 0]];
-$verification = ['total' => 0, 'verified' => 0, 'mspace' => 0, 'ideamart' => 0, 'pending' => 0];
-$charges = ['day_count' => 0, 'day_success' => 0, 'day_failed' => 0, 'day_revenue' => 0, 'all_count' => 0, 'all_success' => 0, 'all_failed' => 0, 'all_revenue' => 0, 'average_success' => 0];
-$dailyCharges = $subscriptions = $popular = $recent = $users = [];
+$filters = filterParams($_GET);
+$reportDay = $filters['day'] ?: date('Y-m-d');
+$range = [$reportDay . ' 00:00:00', (new DateTimeImmutable($reportDay))->modify('+1 day')->format('Y-m-d 00:00:00')];
+$pageSize = 50;
+$page = $filters['page'];
+$offset = 0;
+$totalUsers = 0;
+$totalPages = 1;
+$stats = ['total' => 0, 'active' => 0, 'inactive' => 0, 'blocked' => 0];
+$funnel = [];
+foreach (['dialog', 'mobitel', 'airtel', 'hutch', 'unknown'] as $provider) $funnel[$provider] = ['users' => 0, 'verified' => 0, 'active' => 0];
+$verification = ['new_users' => 0, 'ideamart' => 0, 'mspace' => 0];
+$subscriptionHours = [];
+$subscriptionTotal = 0;
+$users = [];
 $databaseError = false;
-$totalUsers=0;$totalPages=1;$offset=0;$pageSize=50;
 
+// Numbers are normally stored as +94, but older local-format records remain visible.
+$digits = "REPLACE(u.mobile_e164,'+','')";
+$prefix = "CASE WHEN $digits LIKE '94%' THEN SUBSTRING($digits,3,2) WHEN $digits LIKE '0%' THEN SUBSTRING($digits,2,2) ELSE LEFT($digits,2) END";
+$providerExpr = "CASE WHEN ($prefix) IN ('74','76','77') THEN 'dialog' WHEN ($prefix) IN ('70','71') THEN 'mobitel' WHEN ($prefix)='75' THEN 'airtel' WHEN ($prefix) IN ('72','78') THEN 'hutch' ELSE 'unknown' END";
+// Legacy rows can lack subscriber IDs. For those (and old rows with both IDs), infer
+// the platform from the number. Do not report demo verification as real verification.
+$verificationExpr = "CASE WHEN COALESCE(u.phone_verified_real,0)<>1 THEN 'unverified' WHEN u.ideamart_subscriber_id IS NOT NULL AND u.mspace_subscriber_id IS NULL THEN 'ideamart' WHEN u.mspace_subscriber_id IS NOT NULL AND u.ideamart_subscriber_id IS NULL THEN 'mspace' WHEN ($providerExpr)='mobitel' THEN 'mspace' WHEN ($providerExpr) IN ('dialog','airtel','hutch') THEN 'ideamart' ELSE 'unknown' END";
+$customerExpr = "COALESCE(u.role,'user')<>'admin'";
+// Use the latest subscription record. IdeaMart's REGISTERED status is authoritative;
+// other subscriptions also require an unexpired end time.
+$activeExpr = "COALESCE((SELECT CASE WHEN us.provider='ideamart' THEN us.provider_status='REGISTERED' ELSE us.status='active' AND us.ends_at>NOW() END FROM user_subscriptions us WHERE us.user_id=u.id ORDER BY us.id DESC LIMIT 1),0)";
 try {
     $pdo = Database::pdo();
-    $sum = $pdo->query("SELECT COUNT(*) all_count, COALESCE(SUM($activeExpr),0) active_count, COALESCE(SUM(u.account_status='blocked'),0) blocked_count FROM users u WHERE $customerExpr")->fetch() ?: [];
-    $stats['all'] = (int)($sum['all_count'] ?? 0);
-    $stats['active'] = (int)($sum['active_count'] ?? 0);
-    $stats['blocked'] = (int)($sum['blocked_count'] ?? 0);
-    $stats['inactive'] = max(0, $stats['all'] - $stats['active'] - $stats['blocked']);
-    $range = [$day . ' 00:00:00', date('Y-m-d 00:00:00', strtotime($day . ' +1 day'))];
-    $st = $pdo->prepare("SELECT COUNT(*) FROM users u WHERE $customerExpr AND u.created_at>=? AND u.created_at<?");
+    $row = $pdo->query("SELECT COUNT(*) total, COALESCE(SUM(u.account_status<>'blocked' AND ($activeExpr)),0) active, COALESCE(SUM(u.account_status<>'blocked' AND NOT ($activeExpr)),0) inactive, COALESCE(SUM(u.account_status='blocked'),0) blocked FROM users u WHERE $customerExpr")->fetch();
+    $stats = array_map('intval', $row);
+    $rows = $pdo->query("SELECT $providerExpr provider, COUNT(*) users, COALESCE(SUM(u.phone_verified_real=1),0) verified, COALESCE(SUM(u.account_status<>'blocked' AND ($activeExpr)),0) active FROM users u WHERE $customerExpr GROUP BY provider")->fetchAll();
+    foreach ($rows as $row) $funnel[$row['provider']] = array_map('intval', array_intersect_key($row, $funnel[$row['provider']]));
+    $st = $pdo->prepare("SELECT COUNT(*) new_users, COALESCE(SUM(($verificationExpr)='ideamart'),0) ideamart, COALESCE(SUM(($verificationExpr)='mspace'),0) mspace FROM users u WHERE $customerExpr AND u.created_at>=? AND u.created_at<?");
     $st->execute($range);
-    $stats['new'] = (int)$st->fetchColumn();
-    $st = $pdo->prepare("SELECT COUNT(*) FROM users WHERE COALESCE(role,'user')<>'admin' AND last_login_at>=? AND last_login_at<?");
-    $st->execute($range);
-    $stats['logins'] = (int)$st->fetchColumn();
+    $verification = array_map('intval', $st->fetch());
+    $st = $pdo->query("SELECT DATE_FORMAT(s.accepted_at,'%Y-%m-%d %H:00') hour_label, COUNT(*) n FROM user_subscriptions s JOIN users u ON u.id=s.user_id WHERE $customerExpr AND s.is_simulated=0 AND s.provider IN ('ideamart','mspace') AND s.status='active' AND s.accepted_at >= NOW() - INTERVAL 24 HOUR AND s.accepted_at <= NOW() GROUP BY hour_label ORDER BY hour_label DESC");
+    $subscriptionHours = $st->fetchAll();
+    foreach ($subscriptionHours as $row) $subscriptionTotal += (int)$row['n'];
 
-    $providersByName=['mSpace'=>['provider'=>'mSpace','users'=>0,'active'=>0,'inactive'=>0,'real_verified'=>0,'charges'=>0,'successful'=>0,'failed'=>0,'revenue'=>0],'IdeaMart'=>['provider'=>'IdeaMart','users'=>0,'active'=>0,'inactive'=>0,'real_verified'=>0,'charges'=>0,'successful'=>0,'failed'=>0,'revenue'=>0],'Unknown'=>['provider'=>'Unknown','users'=>0,'active'=>0,'inactive'=>0,'real_verified'=>0,'charges'=>0,'successful'=>0,'failed'=>0,'revenue'=>0]];
-    $st=$pdo->prepare("SELECT $providerExpr provider,COUNT(*) users,COALESCE(SUM($activeExpr),0) active,COALESCE(SUM(COALESCE(u.account_status,'active')='active' AND u.phone_verified_real=1 AND NOT ($activeExpr)),0) inactive,COALESCE(SUM($realUserExpr),0) real_verified FROM users u WHERE $customerExpr AND u.created_at>=? AND u.created_at<? GROUP BY provider");
-    $st->execute($range);
-    foreach($st->fetchAll() as $row) foreach(['users','active','inactive','real_verified'] as $metric) $providersByName[$row['provider']][$metric]=(int)$row[$metric];
-    $dailyProviderSql="SELECT $providerExpr provider,COUNT(*) charges,COALESCE(SUM(p.status='paid'),0) successful,COALESCE(SUM(p.status='failed'),0) failed,COALESCE(SUM(CASE WHEN p.status='paid' THEN p.amount ELSE 0 END),0) revenue FROM payment_transactions p JOIN users u ON u.id=p.user_id AND COALESCE(u.role,'user')<>'admin' WHERE p.provider IN ('ideamart','mspace') AND p.is_simulated=0 AND p.created_at>=? AND p.created_at<? GROUP BY $providerExpr";
-    $st=$pdo->prepare($dailyProviderSql);$st->execute($range);
-    foreach($st->fetchAll() as $row) foreach(['charges','successful','failed','revenue'] as $metric) $providersByName[$row['provider']][$metric]=$row[$metric];
-    $providers=array_values($providersByName);
-    $baseRows=$pdo->query("SELECT $providerExpr provider,COUNT(*) n FROM users u WHERE $customerExpr AND $activeExpr GROUP BY provider")->fetchAll();
-    foreach($baseRows as $row) $providerBase[$row['provider']]=(int)$row['n'];
-    $platformSql = "SELECT $providerExpr provider,COUNT(*) new_users,COALESCE(SUM($activeExpr),0) active,COALESCE(SUM(COALESCE(u.account_status,'active')='active' AND NOT ($activeExpr)),0) inactive FROM users u WHERE $customerExpr AND u.phone_verified_real=1 AND u.created_at>=? AND u.created_at<? GROUP BY $providerExpr";
-    $st = $pdo->prepare($platformSql);
-    $st->execute($range);
-    foreach($st->fetchAll() as $row) $platforms[$row['provider']]=['new_users'=>(int)$row['new_users'],'active'=>(int)$row['active'],'inactive'=>(int)$row['inactive']];
-    $st = $pdo->prepare("SELECT COUNT(*) total, COALESCE(SUM(u.phone_verified_real=1),0) verified, COALESCE(SUM(u.phone_verified_real=1 AND ($providerExpr)='mSpace'),0) mspace, COALESCE(SUM(u.phone_verified_real=1 AND ($providerExpr)='IdeaMart'),0) ideamart, COALESCE(SUM(u.phone_verified_real=0),0) pending FROM users u WHERE $customerExpr AND u.created_at>=? AND u.created_at<?");
-    $st->execute($range); $verification = array_map('intval', $st->fetch() ?: $verification);
-
-    $st=$pdo->prepare("SELECT COUNT(*) day_count,COALESCE(SUM(status='paid'),0) day_success,COALESCE(SUM(status='failed'),0) day_failed,COALESCE(SUM(CASE WHEN status='paid' THEN amount ELSE 0 END),0) day_revenue FROM payment_transactions WHERE provider IN ('ideamart','mspace') AND is_simulated=0 AND user_id IN (SELECT id FROM users WHERE COALESCE(role,'user')<>'admin') AND created_at>=? AND created_at<?");
-    $st->execute($range);$charges=array_merge($charges,$st->fetch()?:[]);
-    $all=$pdo->query("SELECT COUNT(*) all_count,COALESCE(SUM(status='paid'),0) all_success,COALESCE(SUM(status='failed'),0) all_failed,COALESCE(SUM(CASE WHEN status='paid' THEN amount ELSE 0 END),0) all_revenue,COALESCE(AVG(CASE WHEN status='paid' THEN amount END),0) average_success FROM payment_transactions WHERE provider IN ('ideamart','mspace') AND is_simulated=0 AND user_id IN (SELECT id FROM users WHERE COALESCE(role,'user')<>'admin')")->fetch()?:[];
-    $charges=array_merge($charges,$all);
-    $dailyStart=date('Y-m-d 00:00:00',strtotime($day.' -13 days'));
-    $st=$pdo->prepare("SELECT DATE(created_at) day,COUNT(*) attempts,COALESCE(SUM(status='paid'),0) successful,COALESCE(SUM(CASE WHEN status='paid' THEN amount ELSE 0 END),0) revenue FROM payment_transactions WHERE provider IN ('ideamart','mspace') AND is_simulated=0 AND user_id IN (SELECT id FROM users WHERE COALESCE(role,'user')<>'admin') AND created_at>=? AND created_at<? GROUP BY DATE(created_at)");
-    $st->execute([$dailyStart,$range[1]]);$dailyByDate=[];foreach($st->fetchAll() as $row)$dailyByDate[$row['day']]=$row;
-    for($offset=13;$offset>=0;$offset--){$date=date('Y-m-d',strtotime($day.' -'.$offset.' days'));$dailyCharges[]=$dailyByDate[$date]??['day'=>$date,'attempts'=>0,'successful'=>0,'revenue'=>0];}
-    $hourStart=new DateTimeImmutable(date('Y-m-d H:00:00'),new DateTimeZone('Asia/Colombo'));
-    $hourRangeStart=$hourStart->modify('-23 hours');
-    $st=$pdo->prepare("SELECT DATE_FORMAT(accepted_at,'%Y-%m-%d %H:00') hour_label,COUNT(*) n FROM user_subscriptions WHERE is_simulated=0 AND provider IN ('ideamart','mspace') AND user_id IN (SELECT id FROM users WHERE COALESCE(role,'user')<>'admin') AND accepted_at>=? AND accepted_at<=NOW() GROUP BY hour_label");
-    $st->execute([$hourRangeStart->format('Y-m-d H:i:s')]);$subscriptionHours=[];foreach($st->fetchAll() as $row)$subscriptionHours[$row['hour_label']]=(int)$row['n'];
-    for($offset=0;$offset<24;$offset++){$hour=$hourStart->modify('-'.$offset.' hours')->format('Y-m-d H:00');$subscriptions[]=['hour_label'=>$hour,'n'=>$subscriptionHours[$hour]??0];}
-    $popular = $pdo->query("SELECT s.slug, COUNT(q.id) n FROM service_catalog s LEFT JOIN horoscope_requests q ON q.service_id=s.id AND q.user_id IN (SELECT id FROM users WHERE COALESCE(role,'user')<>'admin') GROUP BY s.id,s.slug ORDER BY n DESC,s.id ASC LIMIT 8")->fetchAll();
-
-    $where=[$customerExpr];$params=[];
-    if($query!==''){$digits=preg_replace('/\\D/','',$query);if($digits==='')$where[]='1=0';else{$where[]='(u.mobile_e164 LIKE ? OR u.id=?)';$params[]='%'.$digits.'%';$params[]=(int)$digits;}}
-    elseif($scope==='day'){$where[]='u.created_at>=? AND u.created_at<?';$params=$range;}
-    if($filter==='active')$where[]=$activeExpr;
-    if($filter==='inactive')$where[]="COALESCE(u.account_status,'active')='active' AND u.phone_verified_real=1 AND NOT ($activeExpr)";
-    if($filter==='pending')$where[]="COALESCE(u.account_status,'active')='active' AND u.phone_verified_real=0";
-    if($filter==='blocked')$where[]="u.account_status='blocked'";
-    $whereSql=' FROM users u WHERE '.implode(' AND ',$where);
-    $st=$pdo->prepare('SELECT COUNT(*)'.$whereSql);$st->execute($params);$totalUsers=(int)$st->fetchColumn();
-    $totalPages=max(1,(int)ceil($totalUsers/$pageSize));$page=min($page,$totalPages);$offset=($page-1)*$pageSize;
-    $sql="SELECT u.*,CASE WHEN COALESCE(u.account_status,'active')='blocked' THEN 'blocked' WHEN COALESCE(u.phone_verified_real,0)=0 THEN 'pending' WHEN $activeExpr THEN 'active' ELSE 'inactive' END dashboard_status,(SELECT MAX(ends_at) FROM user_subscriptions ux WHERE ux.user_id=u.id) subscription_ends_at,(SELECT provider_status FROM user_subscriptions ux WHERE ux.user_id=u.id ORDER BY ux.id DESC LIMIT 1) provider_subscription_status,(SELECT frequency FROM user_subscriptions ux WHERE ux.user_id=u.id ORDER BY ux.id DESC LIMIT 1) subscription_frequency,(SELECT notified_at FROM user_subscriptions ux WHERE ux.user_id=u.id ORDER BY ux.id DESC LIMIT 1) subscription_notified_at FROM users u WHERE ".implode(' AND ',$where)." ORDER BY u.created_at DESC,u.id DESC LIMIT $pageSize OFFSET $offset";
-    $st=$pdo->prepare($sql);$st->execute($params);$users=$st->fetchAll();
-    $recent = $pdo->query("SELECT q.status,q.locale,q.created_at,s.slug FROM horoscope_requests q JOIN service_catalog s ON s.id=q.service_id JOIN users u ON u.id=q.user_id AND COALESCE(u.role,'user')<>'admin' ORDER BY q.id DESC LIMIT 8")->fetchAll();
+    $where = [$customerExpr];
+    $params = [];
+    if ($filters['day'] !== '') { $where[] = 'u.created_at>=? AND u.created_at<?'; array_push($params, ...$range); }
+    if ($filters['provider'] !== '') { $where[] = "($providerExpr)=?"; $params[] = $filters['provider']; }
+    if ($filters['verification'] !== '') { $where[] = "($verificationExpr)=?"; $params[] = $filters['verification']; }
+    if ($filters['state'] !== '') { $where[] = 'u.account_status=?'; $params[] = $filters['state']; }
+    if ($filters['q'] !== '') {
+        $searchDigits = preg_replace('/\D/', '', $filters['q']);
+        if ($searchDigits === '') $where[] = '1=0';
+        else {
+            $where[] = "($digits LIKE ? OR $digits LIKE ?)";
+            $params[] = '%' . $searchDigits . '%';
+            $params[] = '%' . (str_starts_with($searchDigits, '0') ? '94' . substr($searchDigits, 1) : $searchDigits) . '%';
+        }
+    }
+    $whereSql = ' FROM users u WHERE ' . implode(' AND ', $where);
+    $st = $pdo->prepare('SELECT COUNT(*)' . $whereSql); $st->execute($params); $totalUsers = (int)$st->fetchColumn();
+    $totalPages = max(1, (int)ceil($totalUsers / $pageSize));
+    $page = min($page, $totalPages); $filters['page'] = $page; $offset = ($page - 1) * $pageSize;
+    $st = $pdo->prepare("SELECT u.id,u.mobile_e164,u.account_status,u.created_at,u.last_login_at, $verificationExpr verification, $providerExpr provider" . $whereSql . " ORDER BY u.created_at DESC,u.id DESC LIMIT $pageSize OFFSET $offset");
+    $st->execute($params); $users = $st->fetchAll();
 } catch (Throwable $exception) {
     error_log('Divigamana admin dashboard database error: ' . $exception->getMessage());
     $databaseError = true;
+    $users = [];
+    $subscriptionHours = [];
 }
-?><!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Admin dashboard | Divigamana</title><style>
-:root{color-scheme:dark;--navy:#0b1026;--panel:#171333;--line:#ffffff1f;--gold:#d5ad63;--muted:#bdb5ca;--green:#71d0aa;--red:#fa98a8}*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 8% 0,#292158 0,transparent 32%),var(--navy);color:#f9f5ed;font:14px Inter,system-ui,sans-serif}.shell{max-width:1400px;margin:auto;padding:28px 22px 55px}.top{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:30px}.brand{display:flex;align-items:center;gap:12px}.mark{display:grid;place-items:center;width:42px;height:42px;border-radius:12px;background:var(--gold);color:#171333;font-size:22px;font-weight:800}h1,h2,h3{margin:0}.muted,small{color:var(--muted)}button,.button{border:1px solid var(--line);border-radius:8px;padding:8px 11px;background:#ffffff0a;color:#f9f5ed;cursor:pointer;text-decoration:none;font:inherit}.danger{color:#ffbac4;border-color:#fa98a855}.notice{padding:13px 15px;background:#382a18;color:#ffdf98;border:1px solid #e5b75b55;border-radius:10px;margin-bottom:18px}.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin:22px 0}.card,.panel{background:var(--panel);border:1px solid var(--line);border-radius:12px}.card{padding:18px}.card b{display:block;color:var(--gold);font-size:1.65rem;margin-bottom:6px}.card span{display:block}.grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px}.panel{padding:18px;min-width:0}.panel h2{font-size:14px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);padding-bottom:12px;margin-bottom:3px;border-bottom:1px solid var(--line)}.metric{display:flex;justify-content:space-between;gap:12px;padding:9px 0;border-bottom:1px dashed var(--line)}.metric:last-child{border:0}.metric b{text-align:right}.section{margin-top:20px}.toolbar{display:flex;flex-wrap:wrap;align-items:center;gap:9px;margin:18px 0}.toolbar form{display:flex;gap:8px}.toolbar input,.toolbar select{border:1px solid var(--line);border-radius:8px;background:#0e0b22;color:#fff;padding:8px;font:inherit}.tabs a{padding:8px 10px;border:1px solid var(--line);border-radius:20px;color:#f9f5ed;text-decoration:none}.tabs .on{background:var(--gold);color:#171333;border-color:var(--gold)}.table-wrap{overflow:auto}.table{width:100%;border-collapse:collapse;min-width:720px}.table th{text-align:left;color:var(--muted);text-transform:uppercase;font-size:11px;letter-spacing:.04em}.table th,.table td{padding:11px 8px;border-bottom:1px solid var(--line)}.right{text-align:right}.status{font-weight:700;text-transform:capitalize}.active,.completed{color:var(--green)}.inactive,.processing{color:var(--gold)}.blocked,.failed{color:var(--red)}.two{display:grid;grid-template-columns:1fr 1.4fr;gap:16px}.footer{margin-top:22px;color:var(--muted);font-size:12px}@media(max-width:1050px){.grid{grid-template-columns:repeat(2,1fr)}.stats{grid-template-columns:repeat(2,1fr)}}@media(max-width:700px){.shell{padding:20px 14px}.grid,.two{grid-template-columns:1fr}.stats{grid-template-columns:1fr}.top{align-items:flex-start}.toolbar form{width:100%}.toolbar input{min-width:0;width:100%}}
-:root{color-scheme:light;--navy:#f6f8fc;--panel:#fff;--line:#e2e8f0;--gold:#4338ca;--muted:#64748b;--green:#15803d;--red:#b91c1c}body{background:#f6f8fc;color:#172033}.card,.panel{background:#fff;border-color:#e2e8f0;box-shadow:0 4px 14px #1720330a}.card b{color:#4338ca}.metric{border-color:#edf0f5}.toolbar input,.toolbar select{background:#fff;color:#172033;border-color:#cbd5e1}.toolbar a,.button,button{background:#fff;color:#172033;border-color:#d8e0ea}.tabs .on{background:#eef2ff;color:#3730a3;border-color:#c7d2fe}.notice{background:#fff7ed;color:#9a3412;border-color:#fed7aa}.status.active,.completed{color:#15803d}.status.inactive,.status.pending,.processing{color:#a16207}.status.blocked,.failed{color:#b91c1c}
-@media(max-width:700px){.table-wrap{overflow:visible}.table{min-width:0}.table thead{display:none}.table,.table tbody,.table tr,.table td{display:block;width:100%}.table tbody{display:grid;gap:10px}.table tr{display:block;margin:0 0 10px;padding:10px 12px;background:#fff;border:1px solid #e2e8f0;border-radius:10px}.table td{display:grid;grid-template-columns:minmax(100px,.75fr) minmax(0,1.25fr);gap:9px;padding:8px 4px;border-bottom:1px solid #edf0f5;text-align:right;overflow-wrap:anywhere}.table td:before{content:attr(data-label);color:#64748b;text-align:left;font-size:.78rem}.table td:last-child{border-bottom:0}.table td[colspan]{display:block}.table td[colspan]:before{content:none}}
+$returnTo = qs($filters);
+$providerNames = ['dialog' => 'Dialog', 'mobitel' => 'Mobitel', 'airtel' => 'Airtel', 'hutch' => 'Hutch', 'unknown' => 'Other'];
+$prefixLabels = ['dialog' => '074 / 077 / 076', 'mobitel' => '070 / 071', 'airtel' => '075', 'hutch' => '072 / 078', 'unknown' => 'Other prefixes'];
+$verificationNames = ['ideamart' => 'IdeaMart verified', 'mspace' => 'mSpace verified', 'unverified' => 'Not verified', 'unknown' => 'Verified · platform unknown'];
+?>
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Admin dashboard | Divigamana</title>
+<style>
+:root{color-scheme:light;--ink:#172033;--muted:#65718a;--line:#e5eaf2;--accent:#5046c6;--bg:#f5f7fb}*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.5 system-ui,-apple-system,sans-serif}.shell{max-width:1440px;margin:auto;padding:32px 28px 60px}.top,.heading,.panel-head,.metric,.pagination{display:flex;align-items:center;justify-content:space-between;gap:16px}.brand{display:flex;align-items:center;gap:12px}.mark{display:grid;place-items:center;width:44px;height:44px;border-radius:13px;background:#5148c7;color:white;font-size:23px;font-weight:800}h1,h2,h3,p{margin:0}h1{font-size:20px}h2{font-size:18px}h3{font-size:14px}.muted,small{color:var(--muted)}small{display:block}.top{margin-bottom:38px}.heading{margin-bottom:20px}.eyebrow{text-transform:uppercase;letter-spacing:.1em;font-size:11px;font-weight:700;color:var(--accent);margin-bottom:5px}.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:16px}.card,.panel{background:white;border:1px solid var(--line);border-radius:14px;box-shadow:0 4px 18px #23345b08}.card{padding:20px}.card .value{display:block;font-size:30px;font-weight:750;line-height:1.2;margin:12px 0 7px}.card .label{font-weight:650}.section{margin-top:28px}.grid{display:grid;grid-template-columns:1.5fr 1fr;gap:16px}.panel{padding:22px;min-width:0}.panel-head{align-items:flex-start;margin-bottom:18px}.panel-head p{margin-top:4px}.base{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}.base-item{background:#f7f8fd;border-radius:10px;padding:13px}.base-item b{display:block;font-size:22px;margin-top:10px}.base-item small{font-size:11px}.table-wrap{overflow-x:auto}.table{border-collapse:collapse;width:100%;min-width:650px}.table th,.table td{text-align:left;padding:12px 10px;border-bottom:1px solid var(--line)}.table th{font-size:11px;letter-spacing:.05em;text-transform:uppercase;color:var(--muted)}.table tr:last-child td{border-bottom:0}.metric{padding:12px 0;border-bottom:1px solid var(--line)}.metric:last-child{border:0}.metric b{font-size:17px}.toolbar{display:flex;align-items:end;flex-wrap:wrap;gap:12px;margin:18px 0}.toolbar label{display:grid;gap:5px;color:var(--muted);font-size:12px;font-weight:650}.toolbar input,.toolbar select{min-height:40px;min-width:145px;padding:8px 10px;border:1px solid #d6deeb;border-radius:8px;background:white;color:var(--ink);font:inherit}.toolbar input[type=search]{min-width:190px}button,.button{display:inline-block;min-height:40px;border:1px solid #d6deeb;border-radius:8px;background:white;color:var(--ink);padding:9px 13px;cursor:pointer;text-decoration:none;font:600 13px system-ui}.primary{background:var(--accent);color:white;border-color:var(--accent)}.danger{color:#b4233c}.pill{display:inline-block;padding:4px 8px;border-radius:20px;font-size:12px;font-weight:650;background:#f1f4f8}.pill.active{background:#e9f8ef;color:#167044}.pill.blocked{background:#fff0f1;color:#b4233c}.notice{padding:14px 16px;border-radius:10px;background:#fff5e9;color:#905300;margin-bottom:20px}.pagination{margin-top:16px;flex-wrap:wrap}.pagination div{display:flex;gap:8px}.hours{max-height:260px;overflow:auto}.footer{margin-top:25px;color:var(--muted);font-size:12px}.empty{text-align:center;color:var(--muted);padding:20px!important}@media(max-width:1000px){.stats,.base{grid-template-columns:repeat(2,1fr)}.grid{grid-template-columns:1fr}}@media(max-width:600px){.shell{padding:22px 14px 40px}.top{margin-bottom:28px}.heading{align-items:flex-start}.stats{gap:10px}.card,.panel{padding:16px}.card .value{font-size:25px}.toolbar label{flex:1 1 140px}.toolbar input,.toolbar select{width:100%;min-width:0}.base{gap:8px}}
 </style></head><body><main class="shell">
-<header class="top"><div class="brand"><div class="mark">දි</div><div><h1>Divigamana Admin</h1><small>User, subscription, payment and reading analytics</small></div></div><form method="post"><input type="hidden" name="csrf" value="<?= e(Csrf::token()) ?>"><button name="logout" value="1">Sign out</button></form></header>
-<?php if ($databaseError): ?><div class="notice" role="alert"><strong>Analytics unavailable.</strong> The database could not be read. Confirm migrations and database access; counts are suppressed instead of shown as zero.</div><?php endif; ?><?php if (!empty($_SESSION['admin_flash'])): ?><div class="notice" role="status"><?=e($_SESSION['admin_flash'])?></div><?php unset($_SESSION['admin_flash']); endif; ?>
-<section class="stats"><article class="card"><b><?= n($stats['all']) ?></b><span>Total users</span><small>All registered mobile numbers</small></article><article class="card"><b><?= n($stats['active']) ?></b><span>Active users</span><small>Enabled accounts with a current subscription</small></article><article class="card"><b><?= n($stats['inactive']) ?></b><span>Inactive / expired</span><small>Includes pending verification</small></article><article class="card"><b><?= n($stats['blocked']) ?></b><span>Blocked users</span><small>Restricted by an administrator</small></article></section>
-<div class="grid"><section class="panel"><h2>Signup cohorts · <?= e($day) ?></h2><p class="muted">Unique users registered this day; charge metrics use transaction time on this date.</p><?php foreach ($providers as $row): ?><div class="metric"><span><b><?= e($row['provider']) ?></b><small><?= n($row['users']) ?> new · <?= n($row['real_verified']) ?> verified</small></span><b><?= n($row['active']) ?> active<br><small><?= n($row['inactive']) ?> inactive · <?= n($row['charges']) ?> charges</small></b></div><?php endforeach; ?><?php if (!$providers): ?><p class="muted">No new users for this day.</p><?php endif; ?><h2 style="margin-top:16px">Current provider base</h2><?php foreach ($providerBase as $name => $count): ?><div class="metric"><span><?= e($name) ?></span><b><?= n($count) ?></b></div><?php endforeach; ?></section>
-<section class="panel"><h2>Verification · <?= e($day) ?></h2><div class="metric"><span>New users</span><b><?= n($verification['total']) ?></b></div><div class="metric"><span>mSpace verified</span><b><?= n($verification['mspace']) ?></b></div><div class="metric"><span>IdeaMart verified</span><b><?= n($verification['ideamart']) ?></b></div><div class="metric"><span>Not verified</span><b><?= n($verification['pending']) ?></b></div><div class="metric"><span>Verification rate</span><b><?=percent($verification['verified'],$verification['total'])?></b></div><h2 style="margin-top:16px">Provider platform</h2><?php foreach (['mSpace','IdeaMart'] as $name): $row = $platforms[$name]; ?><div class="metric"><span><?= e($name) ?><small><?= n($row['new_users']) ?> new users</small></span><b><?= n($row['active']) ?> active<br><small><?= n($row['inactive']) ?> inactive</small></b></div><?php endforeach; ?></section>
-<section class="panel"><h2>Carrier charges · <?= e($day) ?></h2><p class="muted">Non-simulated transactions by event time; refunds excluded from collected revenue.</p><div class="metric"><span>Attempts</span><b><?= n($charges['day_count']) ?></b></div><div class="metric"><span>Successful / failed</span><b><?= n($charges['day_success']) ?> / <?= n($charges['day_failed']) ?></b></div><div class="metric"><span>Success rate</span><b><?=percent($charges['day_success'],$charges['day_count'])?></b></div><div class="metric"><span>Collected revenue</span><b><?= money($charges['day_revenue']) ?></b></div><h2 style="margin-top:16px">All-time</h2><div class="metric"><span>Attempts / success / failed</span><b><?= n($charges['all_count']) ?> / <?= n($charges['all_success']) ?> / <?= n($charges['all_failed']) ?></b></div><div class="metric"><span>Revenue / avg. success</span><b><?= money($charges['all_revenue']) ?><br><small><?= money($charges['average_success']) ?></small></b></div></section></div>
-<div class="grid section"><section class="panel"><h2>Carrier charges · 14 days ending <?=e($day)?></h2><?php foreach ($dailyCharges as $row): ?><div class="metric"><span><?= e($row['day']) ?><small><?= n($row['attempts']) ?> attempts</small></span><b><?= n($row['successful']) ?> success<br><small><?= money($row['revenue']) ?></small></b></div><?php endforeach; ?><?php if ($databaseError): ?><p class="muted">Analytics unavailable.</p><?php elseif (!$dailyCharges): ?><p class="muted">No payments recorded.</p><?php endif; ?></section><section class="panel"><h2>Subscription records · rolling 24 hours</h2><?php foreach ($subscriptions as $row): ?><div class="metric"><span><?= e($row['hour_label']) ?></span><b><?= n($row['n']) ?></b></div><?php endforeach; ?><?php if ($databaseError): ?><p class="muted">Analytics unavailable.</p><?php elseif (!$subscriptions): ?><p class="muted">No subscription records in this window.</p><?php endif; ?></section><section class="panel"><h2>Popular services</h2><?php foreach ($popular as $row): ?><div class="metric"><span><?= e($row['slug']) ?></span><b><?= n($row['n']) ?></b></div><?php endforeach; ?><?php if($databaseError): ?><p class="muted">Analytics unavailable.</p><?php elseif(!$popular): ?><p class="muted">No service requests recorded.</p><?php endif; ?></section></div>
-<section class="section"><h2>User management</h2><div class="toolbar"><a class="button" href="<?= e(qs(['day' => $prev, 'q' => $query, 'status' => $filter,'scope'=>$scope==='all'?'all':''])) ?>">‹ Prev</a><form method="get"><input type="date" name="day" value="<?= e($day) ?>" max="<?=e($today)?>" onchange="this.form.submit()"><input type="hidden" name="q" value="<?=e($query)?>"><input type="hidden" name="scope" value="<?=e($scope)?>"><?php if ($filter): ?><input type="hidden" name="status" value="<?= e($filter) ?>"><?php endif; ?></form><?php if ($day !== $today): ?><a class="button" href="<?= e(qs(['q' => $query, 'status' => $filter,'scope'=>$scope==='all'?'all':''])) ?>">Today</a><?php endif; ?><?php if ($day < $today): ?><a class="button" href="<?= e(qs(['day' => $next, 'q' => $query, 'status' => $filter,'scope'=>$scope==='all'?'all':''])) ?>">Next ›</a><?php endif; ?><a class="button <?= $scope==='day'?'on':'' ?>" href="<?=e(qs(['day'=>$day===$today?'':$day,'q'=>$query,'status'=>$filter]))?>">Users on selected day</a><a class="button <?= $scope==='all'?'on':'' ?>" href="<?=e(qs(['day'=>$day===$today?'':$day,'q'=>$query,'status'=>$filter,'scope'=>'all']))?>">All dates</a><a class="button" href="<?=e('/admin'.qs(['day'=>$day===$today?'':$day,'q'=>$query,'status'=>$filter,'scope'=>$scope==='all'?'all':'','page'=>$page>1?$page:null]))?>">Refresh</a><span class="muted"><?= n($stats['new']) ?> new · <?= n($stats['logins']) ?> users last logged in</span><form method="get"><input name="q" value="<?= e($query) ?>" maxlength="100" placeholder="Search mobile or user ID"><input type="hidden" name="day" value="<?=e($day===$today?'':$day)?>"><input type="hidden" name="scope" value="<?=e($scope)?>"><?php if ($filter): ?><input type="hidden" name="status" value="<?= e($filter) ?>"><?php endif; ?></form></div><div class="toolbar tabs"><?php foreach ($filters as $value => $label): ?><a class="<?= $filter === $value ? 'on' : '' ?>" href="<?= e(qs(['day' => $day === $today ? '' : $day, 'q' => $query, 'status' => $value,'scope'=>$scope==='all'?'all':''])) ?>"><?= e($label) ?></a><?php endforeach; ?></div><?php if ($query): ?><p class="muted">Search results for “<?= e($query) ?>” across all dates. <a href="<?=e('/admin'.qs(['day'=>$day===$today?'':$day,'status'=>$filter,'scope'=>$scope==='all'?'all':'']))?>">Clear</a></p><?php endif; ?><div class="panel table-wrap"><table class="table"><thead><tr><th>Mobile</th><th>Account state</th><th>Verification / platform</th><th>Joined</th><th>Last login</th><th>Carrier subscription</th><th>Subscription ends</th><th></th></tr></thead><tbody><?php foreach ($users as $user): ?><tr><td data-label="Mobile"><b><?= e($user['mobile_e164']) ?></b><small>ID <?=n($user['id'])?></small></td><td data-label="Account state"><span class="status <?= e($user['dashboard_status']) ?>"><?= e($user['dashboard_status']) ?></span></td><td data-label="Verification"><?= $user['phone_verified_real'] ? 'Verified: ' . e(carrierPlatform((string)$user['mobile_e164'])) : 'Pending' ?></td><td data-label="Registered"><?= e($user['created_at']) ?></td><td data-label="Last login"><?= e($user['last_login_at'] ?: '—') ?></td><td data-label="Carrier subscription"><?= e($user['provider_subscription_status'] ?: '—') ?><?php if ($user['subscription_frequency']): ?><small> · <?= e($user['subscription_frequency']) ?></small><?php endif; ?><?php if ($user['subscription_notified_at']): ?><small><br><?= e($user['subscription_notified_at']) ?></small><?php endif; ?></td><td data-label="Subscription ends"><?= e($user['subscription_ends_at'] ?: '—') ?></td><td data-label="Actions" class="right"><form method="post"><input type="hidden" name="csrf" value="<?= e(Csrf::token()) ?>"><input type="hidden" name="user_id" value="<?= (int)$user['id'] ?>"><input type="hidden" name="return_to" value="<?= e($returnTo) ?>"><?php if ($user['dashboard_status'] === 'blocked'): ?><button name="action" value="unblock">Unblock</button><?php else: ?><button class="danger" name="action" value="block" onclick="return confirm('Block this number from the site?')">Block</button><?php endif; ?></form></td></tr><?php endforeach; ?><?php if (!$users): ?><tr><td colspan="8" class="muted"><?= $databaseError?'User list unavailable.':'No users for this view.' ?></td></tr><?php endif; ?></tbody></table></div><?php if(!$databaseError): ?><p class="muted">Showing <?=n($totalUsers?min($totalUsers,$offset+1):0)?>–<?=n(min($totalUsers,$offset+$pageSize))?> of <?=n($totalUsers)?> users · page <?=n($page)?> of <?=n($totalPages)?></p><div class="toolbar"><?php if($page>1): ?><a class="button" href="<?=e(qs(['day'=>$day===$today?'':$day,'q'=>$query,'status'=>$filter,'scope'=>$scope==='all'?'all':'','page'=>$page-1]))?>">‹ Previous page</a><?php endif; ?><?php if($page<$totalPages): ?><a class="button" href="<?=e(qs(['day'=>$day===$today?'':$day,'q'=>$query,'status'=>$filter,'scope'=>$scope==='all'?'all':'','page'=>$page+1]))?>">Next page ›</a><?php endif; ?></div><?php endif; ?></section><div class="two section"><section class="panel"><h2>Latest reading requests</h2><?php foreach ($recent as $row): ?><div class="metric"><span><?= e($row['slug']) ?><small><?= e($row['locale']) ?> · <?= e($row['created_at']) ?></small></span><b class="<?= e($row['status']) ?>"><?= e($row['status']) ?></b></div><?php endforeach; ?><?php if ($databaseError): ?><p class="muted">Analytics unavailable.</p><?php elseif (!$recent): ?><p class="muted">No reading requests yet.</p><?php endif; ?></section><section class="panel"><h2>Definitions</h2><p class="muted">Active means the account is not blocked and has a current active subscription. Carrier platform is inferred from the original mobile number prefix: Mobitel numbers use mSpace; Dialog, Hutch and Airtel ranges use IdeaMart.</p></section></div><p class="footer">Dashboard time zone: Asia/Colombo · <?= e(date('D, j M Y H:i')) ?></p></main></body></html>
+<header class="top"><div class="brand"><div class="mark">දි</div><div><h1>Divigamana Admin</h1><small>Subscriber overview</small></div></div><form method="post"><input type="hidden" name="csrf" value="<?=e(Csrf::token())?>"><button name="logout" value="1">Sign out</button></form></header>
+<?php if ($databaseError): ?><div class="notice" role="alert"><strong>Dashboard unavailable.</strong> The database could not be read. Check the database connection and migrations.</div><?php endif; ?>
+<?php if (!empty($_SESSION['admin_flash'])): ?><div class="notice" role="status"><?=e($_SESSION['admin_flash'])?></div><?php unset($_SESSION['admin_flash']); endif; ?>
+<div class="heading"><div><div class="eyebrow">Overview</div><h2>Subscriber dashboard</h2><p class="muted">Current totals across all registered mobile numbers.</p></div><a class="button" href="<?=e('/admin'.qs($filters))?>">Refresh</a></div>
+<section class="stats" aria-label="Subscriber totals"><article class="card"><span class="label">Total users</span><span class="value"><?=n($stats['total'])?></span><small>All registered mobile numbers</small></article><article class="card"><span class="label">Active subscriptions</span><span class="value"><?=n($stats['active'])?></span><small>Enabled accounts with an active subscription</small></article><article class="card"><span class="label">Inactive</span><span class="value"><?=n($stats['inactive'])?></span><small>Enabled accounts without an active subscription</small></article><article class="card"><span class="label">Blocked users</span><span class="value"><?=n($stats['blocked'])?></span><small>Accounts restricted by an administrator</small></article></section>
+<div class="grid section"><section class="panel"><div class="panel-head"><div><h2>Provider funnel</h2><p class="muted">Registered users, verified users and active subscriptions by mobile prefix.</p></div></div><div class="table-wrap"><table class="table"><thead><tr><th>Provider</th><th>Registered</th><th>Verified</th><th>Active subscriptions</th></tr></thead><tbody><?php foreach ($funnel as $key=>$row): ?><tr><td><b><?=e($providerNames[$key])?></b><small><?=e($prefixLabels[$key])?></small></td><td><?=n($row['users'])?></td><td><?=n($row['verified'])?></td><td><?=n($row['active'])?></td></tr><?php endforeach; ?></tbody></table></div></section>
+<section class="panel"><div class="panel-head"><div><h2>Phone verification · by date</h2><p class="muted">Current verification of users who joined on the selected date.</p></div></div><form method="get" class="toolbar"><label>Joined date<input type="date" name="day" value="<?=e($reportDay)?>" max="<?=e(date('Y-m-d'))?>"></label><?php foreach (['q','provider','verification','state'] as $key): ?><input type="hidden" name="<?=e($key)?>" value="<?=e($filters[$key])?>"><?php endforeach; ?><button class="primary">Apply date</button></form><div class="metric"><span>New users</span><b><?=n($verification['new_users'])?></b></div><div class="metric"><span>IdeaMart verified</span><b><?=n($verification['ideamart'])?></b></div><div class="metric"><span>mSpace verified</span><b><?=n($verification['mspace'])?></b></div></section></div>
+<section class="panel section"><div class="panel-head"><div><h2>Provider base count</h2><p class="muted">All registered users, including inactive and blocked accounts. Provider is inferred from the number prefix.</p></div></div><div class="base"><?php foreach (['dialog','mobitel','airtel','hutch'] as $key): ?><div class="base-item"><strong><?=e($providerNames[$key])?></strong><small><?=e($prefixLabels[$key])?></small><b><?=n($funnel[$key]['users'])?></b></div><?php endforeach; ?></div><small style="margin-top:12px">Other prefixes: <?=n($funnel['unknown']['users'])?></small></section>
+<section class="panel section"><div class="panel-head"><div><h2>Subscriptions · last 24 hours</h2><p class="muted">New real active subscription records, grouped by acceptance hour. Repeated callbacks for the same state do not create a new record.</p></div><strong><?=n($subscriptionTotal)?> total</strong></div><div class="hours"><?php foreach ($subscriptionHours as $row): ?><div class="metric"><span><?=e($row['hour_label'])?></span><b><?=n($row['n'])?></b></div><?php endforeach; ?><?php if (!$subscriptionHours): ?><p class="muted"><?=$databaseError?'Subscription data unavailable.':'No new subscription records in the last 24 hours.'?></p><?php endif; ?></div></section>
+<section class="section"><div class="heading"><div><h2>User management</h2><p class="muted">Search and filter registered accounts. Date filters use the joined date.</p></div></div><div class="panel"><form method="get" class="toolbar"><label>Mobile number<input type="search" name="q" value="<?=e($filters['q'])?>" placeholder="e.g. 0771234567"></label><label>Joined date<input type="date" name="day" value="<?=e($filters['day'])?>" max="<?=e(date('Y-m-d'))?>"></label><label>Provider<select name="provider"><?php foreach ($allowedProviders as $key=>$label): ?><option value="<?=e($key)?>" <?=$filters['provider']===$key?'selected':''?>><?=e($label)?></option><?php endforeach; ?></select></label><label>Verification<select name="verification"><?php foreach ($allowedVerification as $key=>$label): ?><option value="<?=e($key)?>" <?=$filters['verification']===$key?'selected':''?>><?=e($label)?></option><?php endforeach; ?></select></label><label>Account state<select name="state"><?php foreach ($allowedStates as $key=>$label): ?><option value="<?=e($key)?>" <?=$filters['state']===$key?'selected':''?>><?=e($label)?></option><?php endforeach; ?></select></label><button class="primary">Apply filters</button><a class="button" href="/admin">Clear</a></form>
+<div class="table-wrap"><table class="table"><thead><tr><th>Mobile</th><th>Account state</th><th>Verification</th><th>Joined</th><th>Last login</th><th>Action</th></tr></thead><tbody><?php foreach ($users as $user): ?><tr><td><b><?=e($user['mobile_e164'])?></b><small><?=e($providerNames[$user['provider']])?></small></td><td><span class="pill <?=e($user['account_status'])?>"><?=e(ucfirst($user['account_status']))?></span></td><td><?=e($verificationNames[$user['verification']])?></td><td><?=e($user['created_at'])?></td><td><?=e($user['last_login_at'] ?: '—')?></td><td><form method="post"><input type="hidden" name="csrf" value="<?=e(Csrf::token())?>"><input type="hidden" name="user_id" value="<?=(int)$user['id']?>"><input type="hidden" name="return_to" value="<?=e($returnTo)?>"><?php if ($user['account_status']==='blocked'): ?><button name="action" value="unblock">Unblock</button><?php else: ?><button class="danger" name="action" value="block" onclick="return confirm('Block this number from the site?')">Block</button><?php endif; ?></form></td></tr><?php endforeach; ?><?php if (!$users): ?><tr><td class="empty" colspan="6"><?=$databaseError?'User list unavailable.':'No users match these filters.'?></td></tr><?php endif; ?></tbody></table></div><?php if (!$databaseError): ?><div class="pagination"><span class="muted">Showing <?=n($totalUsers ? $offset+1 : 0)?>–<?=n(min($totalUsers,$offset+$pageSize))?> of <?=n($totalUsers)?> users</span><div><?php if ($page>1): ?><a class="button" href="<?=e(qs(array_merge($filters,['page'=>$page-1])))?>">Previous</a><?php endif; ?><?php if ($page<$totalPages): ?><a class="button" href="<?=e(qs(array_merge($filters,['page'=>$page+1])))?>">Next</a><?php endif; ?></div></div><?php endif; ?></div></section>
+<p class="footer">All times are Asia/Colombo · <?=e(date('D, j M Y H:i'))?>. Verification platform is inferred from the prefix for older records without a clear subscriber ID.</p></main></body></html>

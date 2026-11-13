@@ -1,4 +1,4 @@
-INSERT INTO service_catalog (id, slug, price_lkr, enabled, configuration_json) VALUES
+INSERT IGNORE INTO service_catalog (id, slug, price_lkr, enabled, configuration_json) VALUES
 (1, 'name-reading', 0.00, 1, '{}'),
 (2, 'future-life', 20.00, 1, '{}'),
 (3, 'dream', 20.00, 1, '{}'),
