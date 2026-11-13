@@ -135,11 +135,14 @@ final class ApiController {
                 $response=(new MspaceClient())->sendSms('tel:'.substr($mobile,1),'Your Divigamana verification code is '.$code.'. It expires in 10 minutes.');
                 if (!MspaceClient::successful($response)) {
                     unset($_SESSION['rate'][$rateKey]);
-                    $error=match ((string)($response['statusCode']??'')) {
-                        'E1303' => 'mSpace has not allow-listed this server IP. Ask mSpace to allow-list the production hosting IP for this application.',
-                        'E1951' => 'mSpace rejected this number. Confirm the number is registered for the mSpace application and use the tel:947XXXXXXXX format.',
-                        default => 'Could not send the verification code. Please try again.',
-                    };
+                    $statusCode=(string)($response['statusCode']??'');
+                    if ($statusCode==='E1303') {
+                        $error='mSpace has not allow-listed this server IP. Ask mSpace to allow-list the production hosting IP for this application.';
+                    } elseif ($statusCode==='E1951') {
+                        $error='mSpace rejected this number. Confirm the number is registered for the mSpace application and use the tel:947XXXXXXXX format.';
+                    } else {
+                        $error='Could not send the verification code. Please try again.';
+                    }
                     error_log('mSpace OTP request rejected: '.MspaceClient::diagnostic($response));
                     Http::json(['ok'=>false,'error'=>$error],502);
                 }
