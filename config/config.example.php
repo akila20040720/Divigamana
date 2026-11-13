@@ -36,6 +36,7 @@ return [
     'db' => [
         'host'=>getenv('DB_HOST') ?: '127.0.0.1',
         'port'=>(int)(getenv('DB_PORT') ?: 3306),
+        'socket'=>getenv('DB_SOCKET') ?: '',
         'name'=>getenv('DB_NAME') ?: 'divigamana',
         'user'=>getenv('DB_USER') ?: 'db_user',
         'pass'=>getenv('DB_PASSWORD') ?: 'change-me',

@@ -55,7 +55,8 @@ try {
     $dbPrices=$pdo->query('SELECT slug,price_lkr FROM service_catalog')->fetchAll(\PDO::FETCH_KEY_PAIR);
     foreach (ServiceCatalog::all() as $service) result(isset($dbPrices[$service['slug']])&&number_format((float)$dbPrices[$service['slug']],2,'.','')===$service['price_lkr']?'PASS':'FAIL','Service price '.$service['slug'],$service['price_lkr'].' LKR');
 } catch (Throwable $error) {
-    result('FAIL','Database readiness','connection or required schema check failed');
+    $detail = PHP_SAPI==='cli' ? get_class($error).': '.$error->getMessage() : 'connection or required schema check failed';
+    result('FAIL','Database readiness',is_string($detail)&&$detail!==''?$detail:'connection or required schema check failed');
 }
 
 if (in_array('--live-ideamart-readonly',$argv,true)) {
