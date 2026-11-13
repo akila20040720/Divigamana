@@ -62,12 +62,15 @@ $fakeMspace=static function(string $key,string $url,array $body) use (&$mspaceRe
     $mspaceRequests[$key]=['url'=>$url,'body'=>$body];
     return $key==='caas_debit_url'?['statusCode'=>'S1000','requestCorrelator'=>'safe-test-reference']:['statusCode'=>'S1000','status'=>true];
 };
-$mspaceConfig=['application_id'=>'APP_TEST','password'=>'test-secret','caas_debit_url'=>'https://example.test/debit','caas_otp_verify_url'=>'https://example.test/verify'];
+$mspaceConfig=['application_id'=>'APP_TEST','password'=>'test-secret','otp_request_url'=>'https://example.test/otp/request','otp_verify_url'=>'https://example.test/otp/verify','caas_debit_url'=>'https://example.test/debit','caas_otp_verify_url'=>'https://example.test/verify'];
 $mspace=new MspaceClient($mspaceConfig,$fakeMspace,true,true);
+$mspace->otpRequest('0707000000',['client'=>'WEBAPP']);
 $mspace->generateChargeOtp('tel:94710000000','divigamana-contract-test','20.00');
 $mspace->verifyChargeOtp('safe-reference','123456','tel:94710000000');
 check(($mspaceRequests['caas_debit_url']['body']['paymentInstrumentName']??'')==='Mobile Account','mSpace debit payload uses Mobile Account');
 check(($mspaceRequests['caas_otp_verify_url']['body']['sourceAddress']??'')==='tel:94710000000','mSpace OTP verification preserves the subscriber');
+check(MspaceClient::subscriberAddress('0707000000')==='tel:94707000000','mSpace normalizes local 070 MSISDNs');
+check(MspaceClient::subscriberAddress('+94710000000')==='tel:94710000000','mSpace normalizes international 071 MSISDNs');
 check(MspaceClient::reference(['statusCode'=>'S1000','requestCorrelator'=>'safe-test-reference'])==='safe-test-reference','mSpace uses the documented request correlator');
 check(MspaceClient::successful(['statusCode'=>'S1000','status'=>true]),'mSpace accepts the documented successful OTP response');
 check(MspaceClient::successful(['destinationResponses'=>[['statusCode'=>'S1000']]]),'mSpace accepts the documented successful SMS response');
@@ -112,7 +115,7 @@ check(($routes['subscription']['handler'][1]??'')==='subscribe','subscription en
 $controllerSource=file_get_contents(dirname(__DIR__).'/app/Controllers/ApiController.php');
 check(is_string($controllerSource)&&str_contains($controllerSource,"new IdeamartClient())->chargingEnabled()"),'paid readings use the IdeaMart CAAS gate');
 check(is_string($controllerSource)&&str_contains($controllerSource,"provider='ideamart' AND external_reference"),'paid readings reconcile IdeaMart CAAS payments');
-check(is_string($controllerSource)&&str_contains($controllerSource,'mSpace rejected this number. Confirm the number is registered'),'Mobitel OTP remains on mSpace when the provider rejects the recipient');
+check(is_string($controllerSource)&&str_contains($controllerSource,'mSpace rejected this number. Confirm it is an active Mobitel 070 or 071 number'),'Mobitel OTP remains on mSpace when the provider rejects the recipient');
 $prices=array_values(array_unique(array_column(array_filter(Divigamana\Services\ServiceCatalog::all(),static fn(array $service): bool=>$service['paid']),'price_lkr')));
 check($prices===['20.00'],'all paid readings have a fixed one-time LKR 20.00 price');
 

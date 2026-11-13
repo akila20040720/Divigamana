@@ -9,6 +9,8 @@ return [
     'mspace' => [
         'application_id' => getenv('MSPACE_APP_ID') ?: '',
         'password' => getenv('MSPACE_PASSWORD') ?: '',
+        'otp_request_url' => getenv('MSPACE_OTP_REQUEST_URL') ?: 'https://api.mspace.lk/otp/request',
+        'otp_verify_url' => getenv('MSPACE_OTP_VERIFY_URL') ?: 'https://api.mspace.lk/otp/verify',
         'sms_url' => getenv('MSPACE_SMS_URL') ?: 'https://api.mspace.lk/sms/send',
         'sms_source_address' => getenv('MSPACE_SMS_SOURCE_ADDRESS') ?: '',
         'caas_debit_url' => getenv('MSPACE_CAAS_DEBIT_URL') ?: 'https://api.mspace.lk/caas/direct/debit',

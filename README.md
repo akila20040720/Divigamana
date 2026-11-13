@@ -46,6 +46,10 @@ Before enabling either CAAS switch on an existing database, also run
 It keeps the application's immutable idempotency key separate from the carrier's internal
 transaction reference, preventing retries from creating a second charge.
 
+For existing databases, run [`database/migration_mspace_subscriber.sql`](database/migration_mspace_subscriber.sql)
+before enabling the mSpace OTP flow. It stores the masked subscriber identity returned by
+mSpace OTP verification, which is required for subsequent CaaS requests.
+
 ## Billing verification
 
 Run the offline route and carrier-contract suite. It does not contact a carrier or move
@@ -66,11 +70,11 @@ The mSpace CAAS integration uses the documented endpoints
 application and allow-listed the production server IP.
 
 Authentication OTPs are routed by operator prefix. Mobitel `070` and `071` numbers use
-mSpace TAP SMS (`MSPACE_SMS_URL`) when the recipient is registered for the mSpace
-application. mSpace failures are not routed through IdeaMart. All other supported Sri
-Lankan operators use IdeaMart. Configure the mSpace SMS source address in
-`MSPACE_SMS_SOURCE_ADDRESS`.
-Mobitel authentication uses SMS delivery and does not use the charging CAAS endpoint.
+the mSpace OTP request/verify endpoints (`MSPACE_OTP_REQUEST_URL` and
+`MSPACE_OTP_VERIFY_URL`). The masked subscriber ID returned by OTP verification is stored
+and reused for CaaS charging; sending the raw `tel:947...` MSISDN to CaaS causes mSpace
+error `E1951`. All other supported Sri Lankan operators use IdeaMart. The mSpace address
+format is `tel:947XXXXXXXX` for the initial MSISDN, with no plus sign or spaces.
 
 ## Qwen production configuration
 

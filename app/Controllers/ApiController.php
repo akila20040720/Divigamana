@@ -131,15 +131,19 @@ final class ApiController {
         if (!self::development() && !self::rate($rateKey,60)) Http::json(['ok'=>false,'error'=>'Please wait before requesting another code.'],429);
         if (self::isMobitel($mobile)) {
             try {
-                $code=(string)random_int(100000,999999);
-                $response=(new MspaceClient())->sendSms('tel:'.substr($mobile,1),'Your Divigamana verification code is '.$code.'. It expires in 10 minutes.');
+                $response=(new MspaceClient())->otpRequest('tel:'.substr($mobile,1),[
+                    'client'=>'WEBAPP',
+                    'device'=>'Browser',
+                    'os'=>'Web',
+                    'appCode'=>(string)(APP_CONFIG['app_url']??''),
+                ]);
                 if (!MspaceClient::successful($response)) {
                     unset($_SESSION['rate'][$rateKey]);
                     $statusCode=(string)($response['statusCode']??'');
                     if ($statusCode==='E1303') {
                         $error='mSpace has not allow-listed this server IP. Ask mSpace to allow-list the production hosting IP for this application.';
                     } elseif ($statusCode==='E1951') {
-                        $error='mSpace rejected this number. Confirm the number is registered for the mSpace application and use the tel:947XXXXXXXX format.';
+                        $error='mSpace rejected this number. Confirm it is an active Mobitel 070 or 071 number and use the tel:947XXXXXXXX format.';
                     } else {
                         $error='Could not send the verification code. Please try again.';
                     }
@@ -148,8 +152,12 @@ final class ApiController {
                 }
                 $_SESSION['otp_mobile']=$mobile;
                 $_SESSION['otp_provider']='mspace';
-                $_SESSION['otp_code_hash']=password_hash($code,PASSWORD_DEFAULT);
-                $_SESSION['otp_expires_at']=time()+600;
+                $_SESSION['otp_reference']=MspaceClient::reference($response);
+                if ($_SESSION['otp_reference']==='') {
+                    unset($_SESSION['rate'][$rateKey],$_SESSION['otp_mobile'],$_SESSION['otp_provider'],$_SESSION['otp_reference']);
+                    error_log('mSpace OTP request returned no reference.');
+                    Http::json(['ok'=>false,'error'=>'OTP service returned an invalid response. Please try again.'],502);
+                }
                 $_SESSION['otp_attempts']=0;
                 Http::json(['ok'=>true,'message'=>'A verification code was sent to your mobile number.']);
             } catch (\Throwable $error) {
@@ -208,11 +216,23 @@ final class ApiController {
         $_SESSION['otp_attempts']=(int)($_SESSION['otp_attempts']??0)+1;
         if ($_SESSION['otp_attempts']>3) Http::json(['ok'=>false,'error'=>'Too many verification attempts. Request a new code.'],429);
         if (($_SESSION['otp_provider']??'ideamart')==='mspace') {
-            if (time()>(int)($_SESSION['otp_expires_at']??0)||!password_verify($code,(string)($_SESSION['otp_code_hash']??''))) {
-                Http::json(['ok'=>false,'error'=>'The verification code is invalid or expired. Request a new OTP and try again.'],422);
+            try {
+                $response=(new MspaceClient())->otpVerify((string)($_SESSION['otp_reference']??''),$code);
+                if (!MspaceClient::successful($response)) {
+                    error_log('mSpace OTP verification rejected: '.MspaceClient::diagnostic($response));
+                    Http::json(['ok'=>false,'error'=>'The verification code is invalid or expired. Request a new OTP and try again.'],422);
+                }
+                $subscriberId=(string)($response['subscriberId']??'');
+                if (!preg_match('/^tel:[A-Za-z0-9._~-]+$/',$subscriberId)) {
+                    error_log('mSpace OTP verification returned no masked subscriber identity.');
+                    Http::json(['ok'=>false,'error'=>'Mobile verification succeeded, but mSpace returned no subscriber identity. Please try again.'],502);
+                }
+                $mspaceSubscriberId=$subscriberId;
+                $subscriptionStatus=strtoupper(trim((string)($response['subscriptionStatus']??'REGISTERED')));
+            } catch (\Throwable $error) {
+                error_log('mSpace OTP verification failed: '.$error->getMessage());
+                Http::json(['ok'=>false,'error'=>'OTP service is temporarily unavailable.'],503);
             }
-            $subscriberId='tel:'.substr($mobile,1);
-            $subscriptionStatus='REGISTERED';
         } else {
         $ideamart=new IdeamartClient();
         $subscriberId=null;
@@ -252,7 +272,7 @@ final class ApiController {
             $statement->execute([$mobile]);
             $user=$statement->fetch();
             if (!$user) {
-                $pdo->prepare("INSERT INTO users (mobile_e164,ideamart_subscriber_id,otp_verified_demo,phone_verified_real,role) VALUES (?,?,0,1,'user')")->execute([$mobile,$subscriberId]);
+                $pdo->prepare("INSERT INTO users (mobile_e164,ideamart_subscriber_id,mspace_subscriber_id,otp_verified_demo,phone_verified_real,role) VALUES (?,?,?,0,1,'user')")->execute([$mobile,$subscriberId??null,$mspaceSubscriberId??null]);
                 $id=(int)$pdo->lastInsertId();
                 self::saveIdeamartSubscription($pdo,$id,$subscriptionStatus);
                 $user=['id'=>$id,'mobile_e164'=>$mobile,'role'=>'user'];
@@ -261,7 +281,7 @@ final class ApiController {
                     $pdo->rollBack();
                     Http::json(['ok'=>false,'error'=>'This account has been blocked. Contact support for assistance.'],403);
                 }
-                $pdo->prepare('UPDATE users SET otp_verified_demo=0,phone_verified_real=1,ideamart_subscriber_id=COALESCE(?,ideamart_subscriber_id) WHERE id=?')->execute([$subscriberId,$user['id']]);
+                $pdo->prepare('UPDATE users SET otp_verified_demo=0,phone_verified_real=1,ideamart_subscriber_id=COALESCE(?,ideamart_subscriber_id),mspace_subscriber_id=COALESCE(?,mspace_subscriber_id) WHERE id=?')->execute([$subscriberId??null,$mspaceSubscriberId??null,$user['id']]);
                 self::saveIdeamartSubscription($pdo,(int)$user['id'],$subscriptionStatus);
             }
             $pdo->commit();
@@ -294,6 +314,7 @@ final class ApiController {
         if (!$record||empty($record['phone_verified_real'])) Http::json(['ok'=>false,'error'=>'Verified mobile ownership is required.'],409);
         if (($record['account_status']??'active')==='blocked') Http::json(['ok'=>false,'error'=>'This account has been blocked. Contact support for assistance.'],403);
         if (!preg_match('/^\+947[01]\d{7}$/',(string)$record['mobile_e164'])) Http::json(['ok'=>false,'error'=>'mSpace charging is available only for supported Mobitel numbers.'],422);
+        if (empty($record['mspace_subscriber_id'])) Http::json(['ok'=>false,'error'=>'Complete mSpace mobile verification before charging.'],409);
         return $record;
     }
     public static function subscribe(): void {
@@ -486,7 +507,7 @@ final class ApiController {
             $key=(string)($input['idempotency_key']??'');
             if (!preg_match('/^[a-zA-Z0-9-]{16,100}$/',$key)) Http::json(['ok'=>false,'error'=>'Invalid request identifier.'],422);
             $external='divigamana-'.substr(hash('sha256',(string)$user['id'].'|'.$key),0,20);
-            $subscriber='tel:'.substr((string)$user['mobile_e164'],1);
+            $subscriber=(string)$user['mspace_subscriber_id'];
             $pdo=Database::pdo();
             $existing=$pdo->prepare("SELECT status,provider_reference FROM payment_transactions WHERE user_id=? AND provider='mspace' AND external_reference=? LIMIT 1");
             $existing->execute([$user['id'],$external]);

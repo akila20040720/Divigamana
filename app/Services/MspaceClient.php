@@ -26,9 +26,35 @@ final class MspaceClient
     }
     public function chargingEnabled(): bool { return $this->enabled()&&$this->caasLive; }
 
+    public static function subscriberAddress(string $value): string
+    {
+        $value=trim($value);
+        if (preg_match('/^tel:[A-Za-z0-9._~-]+$/',$value)===1) return $value;
+        $number=preg_replace('/\D/','',$value);
+        if (substr($number,0,1)==='0') $number='94'.substr($number,1);
+        if (preg_match('/^947[01]\d{7}$/',$number)!==1) {
+            throw new RuntimeException('Invalid Sri Lankan Mobitel MSISDN.');
+        }
+        return 'tel:'.$number;
+    }
+
+    public function otpRequest(string $subscriberId,array $metadata=[]): array
+    {
+        return $this->call('otp_request_url',[
+            'subscriberId'=>self::subscriberAddress($subscriberId),
+            'applicationMetaData'=>$metadata,
+        ],false);
+    }
+
+    public function otpVerify(string $referenceNo,string $otp): array
+    {
+        if ($referenceNo===''||!preg_match('/^\d{4,8}$/',$otp)) throw new RuntimeException('Invalid mSpace OTP verification request.');
+        return $this->call('otp_verify_url',['referenceNo'=>$referenceNo,'otp'=>$otp],false);
+    }
+
     public function sendSms(string $subscriberId,string $message): array
     {
-        self::requireSubscriber($subscriberId);
+        $subscriberId=self::subscriberAddress($subscriberId);
         if ($message==='') throw new RuntimeException('Invalid mSpace SMS message.');
         $sourceAddress=trim((string)($this->config['sms_source_address']??''));
         if ($sourceAddress==='') $sourceAddress=trim((string)(getenv('MSPACE_SMS_SOURCE_ADDRESS') ?: ''));
@@ -45,7 +71,7 @@ final class MspaceClient
 
     public function generateChargeOtp(string $subscriberId,string $externalTrxId,string $amount): array
     {
-        self::requireSubscriber($subscriberId); self::requireCharge($externalTrxId,$amount);
+        $subscriberId=self::subscriberAddress($subscriberId); self::requireCharge($externalTrxId,$amount);
         return $this->call('caas_debit_url',[
             'externalTrxId'=>$externalTrxId,
             'subscriberId'=>$subscriberId,
@@ -58,7 +84,7 @@ final class MspaceClient
     public function verifyChargeOtp(string $referenceNo,string $otp,string $sourceAddress): array
     {
         if ($referenceNo===''||!preg_match('/^\d{4,8}$/',$otp)) throw new RuntimeException('Invalid mSpace OTP verification request.');
-        self::requireSubscriber($sourceAddress);
+        $sourceAddress=self::subscriberAddress($sourceAddress);
         return $this->call('caas_otp_verify_url',['referenceNo'=>$referenceNo,'otp'=>$otp,'sourceAddress'=>$sourceAddress]);
     }
 
