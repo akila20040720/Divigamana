@@ -1,8 +1,9 @@
 <?php
-// Copy this to config/local.php. Keep the real copy outside public_html where the host permits it.
+// Keep .env outside public_html where the host permits it. Never commit credentials here.
 // Qwen keys are region-specific. Replace {WORKSPACE_ID} with your Model Studio workspace ID.
 return [
     'app_env' => getenv('APP_ENV') ?: 'production',
+    'demo_otp_enabled' => filter_var(getenv('DEMO_OTP_ENABLED') ?: 'false', FILTER_VALIDATE_BOOLEAN),
     // Temporary template setting: any six-digit OTP is accepted until SMS is connected.
     'skip_database_check' => filter_var(getenv('SKIP_DATABASE_CHECK') ?: 'false', FILTER_VALIDATE_BOOLEAN),
     'mspace_live' => filter_var(getenv('MSPACE_LIVE') ?: 'false', FILTER_VALIDATE_BOOLEAN),
@@ -10,6 +11,8 @@ return [
     'mspace' => [
         'application_id' => getenv('MSPACE_APP_ID') ?: '',
         'password' => getenv('MSPACE_PASSWORD') ?: '',
+        'otp_request_url' => getenv('MSPACE_OTP_REQUEST_URL') ?: 'https://api.mspace.lk/otp/request',
+        'otp_verify_url' => getenv('MSPACE_OTP_VERIFY_URL') ?: 'https://api.mspace.lk/otp/verify',
         'sms_url' => getenv('MSPACE_SMS_URL') ?: 'https://api.mspace.lk/sms/send',
         'sms_source_address' => getenv('MSPACE_SMS_SOURCE_ADDRESS') ?: '',
         'caas_debit_url' => getenv('MSPACE_CAAS_DEBIT_URL') ?: '',
@@ -29,6 +32,7 @@ return [
         'caas_balance_url' => getenv('IDEAMART_CAAS_BALANCE_URL') ?: 'https://api.ideamart.io/caas/balance/query',
         'caas_account_id' => getenv('IDEAMART_CAAS_ACCOUNT_ID') ?: '',
         'caas_payment_instrument' => getenv('IDEAMART_CAAS_PAYMENT_INSTRUMENT') ?: 'MobileAccount',
+        'caas_callback_token' => getenv('IDEAMART_CAAS_CALLBACK_TOKEN') ?: '',
     ],
     'app_url' => getenv('APP_URL') ?: 'https://divigamana.lk',
     'admin' => [

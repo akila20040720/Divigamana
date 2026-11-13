@@ -5,8 +5,15 @@ if (function_exists('mb_internal_encoding')) {
     mb_internal_encoding('UTF-8');
 }
 define('ROOT_PATH', dirname(__DIR__));
-if (is_file(ROOT_PATH . '/.env')) {
-    foreach (file(ROOT_PATH . '/.env', FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: [] as $line) {
+$envPath = null;
+foreach ([ROOT_PATH . '/.env', dirname(ROOT_PATH) . '/.env'] as $candidate) {
+    if (is_file($candidate) && is_readable($candidate)) {
+        $envPath = $candidate;
+        break;
+    }
+}
+if ($envPath !== null) {
+    foreach (file($envPath, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: [] as $line) {
         $line=trim($line);
         if ($line==='' || $line[0]==='#' || strpos($line,'=')===false) continue;
         [$name,$value]=explode('=',$line,2);

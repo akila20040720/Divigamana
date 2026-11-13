@@ -1,13 +1,13 @@
 ---
 # cPanel Git Version Control deployment configuration.
 # DEPLOYPATH must be the document root for this domain.
-# Create config/local.php manually on the server with restrictive permissions;
-# it is intentionally not copied from Git and must never contain a browser-visible key.
+# Create .env manually on the server with restrictive permissions. It is intentionally
+# not copied from Git and must never contain a browser-visible key.
 deployment:
   tasks:
     - export DEPLOYPATH=/home/rakiyacl/divigamana.lk
     - /bin/mkdir -p "$DEPLOYPATH/public" "$DEPLOYPATH/app" "$DEPLOYPATH/config"
     - /bin/cp index.php terms.php privacy.php api.php robots.txt sitemap.xml .htaccess "$DEPLOYPATH/"
     - /bin/cp -R app/* "$DEPLOYPATH/app/"
-    - /bin/cp config/config.example.php "$DEPLOYPATH/config/"
+    - /bin/cp config/local.php "$DEPLOYPATH/config/"
     - /bin/cp -R public/assets "$DEPLOYPATH/public/"
