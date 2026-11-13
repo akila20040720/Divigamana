@@ -125,7 +125,7 @@ $next = date('Y-m-d', strtotime($day . ' +1 day'));
 $queryRaw=$_GET['q']??'';
 $query = is_string($queryRaw)?trim($queryRaw):'';
 $query=mb_substr($query,0,100);
-$scope=($_GET['scope']??'')==='all'?'all':'day';
+$scope=($_GET['scope']??'')==='day'?'day':'all';
 $page=max(1,min(100000,is_scalar($_GET['page']??null)?(int)$_GET['page']:1));
 $pageSize=50;
 $filter = is_string($_GET['status']??null)?$_GET['status']:'';
@@ -197,7 +197,7 @@ try {
 
     $where=["u.role='user'"];$params=[];
     if($query!==''){$digits=preg_replace('/\\D/','',$query);if($digits==='')$where[]='1=0';else{$where[]='(u.mobile_e164 LIKE ? OR u.id=?)';$params[]='%'.$digits.'%';$params[]=(int)$digits;}}
-    elseif($scope!=='all'){$where[]='u.created_at>=? AND u.created_at<?';$params=$range;}
+    elseif($scope==='day'){$where[]='u.created_at>=? AND u.created_at<?';$params=$range;}
     if($filter==='active')$where[]=$activeExpr;
     if($filter==='inactive')$where[]="u.account_status='active' AND u.phone_verified_real=1 AND NOT ($activeExpr)";
     if($filter==='pending')$where[]="u.account_status='active' AND u.phone_verified_real=0";
