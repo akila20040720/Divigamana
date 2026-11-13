@@ -66,8 +66,10 @@ The mSpace CAAS integration uses the documented endpoints
 application and allow-listed the production server IP.
 
 Authentication OTPs are routed by operator prefix. Mobitel `070` and `071` numbers use
-mSpace TAP SMS (`MSPACE_SMS_URL`), while all other supported Sri Lankan operators use
-IdeaMart. Configure the mSpace SMS source address in `MSPACE_SMS_SOURCE_ADDRESS`.
+mSpace TAP SMS (`MSPACE_SMS_URL`) when the recipient is registered for the mSpace
+application. mSpace failures are not routed through IdeaMart. All other supported Sri
+Lankan operators use IdeaMart. Configure the mSpace SMS source address in
+`MSPACE_SMS_SOURCE_ADDRESS`.
 Mobitel authentication uses SMS delivery and does not use the charging CAAS endpoint.
 
 ## Qwen production configuration

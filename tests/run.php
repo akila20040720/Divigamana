@@ -97,6 +97,7 @@ check(($routes['subscription']['handler'][1]??'')==='subscribe','subscription en
 $controllerSource=file_get_contents(dirname(__DIR__).'/app/Controllers/ApiController.php');
 check(is_string($controllerSource)&&str_contains($controllerSource,"new IdeamartClient())->chargingEnabled()"),'paid readings use the IdeaMart CAAS gate');
 check(is_string($controllerSource)&&str_contains($controllerSource,"provider='ideamart' AND external_reference"),'paid readings reconcile IdeaMart CAAS payments');
+check(is_string($controllerSource)&&str_contains($controllerSource,'mSpace rejected this number. Confirm the number is registered'),'Mobitel OTP remains on mSpace when the provider rejects the recipient');
 $prices=array_values(array_unique(array_column(array_filter(Divigamana\Services\ServiceCatalog::all(),static fn(array $service): bool=>$service['paid']),'price_lkr')));
 check($prices===['20.00'],'all paid readings have a fixed one-time LKR 20.00 price');
 

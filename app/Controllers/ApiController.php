@@ -135,8 +135,11 @@ final class ApiController {
                 $response=(new MspaceClient())->sendSms('tel:'.substr($mobile,1),'Your Divigamana verification code is '.$code.'. It expires in 10 minutes.');
                 if (!MspaceClient::successful($response)) {
                     unset($_SESSION['rate'][$rateKey]);
+                    $error=(string)($response['statusCode']??'')==='E1951'
+                        ? 'mSpace rejected this number. Confirm the number is registered for the mSpace application and use the tel:947XXXXXXXX format.'
+                        : 'Could not send the verification code. Please try again.';
                     error_log('mSpace OTP request rejected: '.MspaceClient::diagnostic($response));
-                    Http::json(['ok'=>false,'error'=>'Could not send the verification code. Please try again.'],502);
+                    Http::json(['ok'=>false,'error'=>$error],502);
                 }
                 $_SESSION['otp_mobile']=$mobile;
                 $_SESSION['otp_provider']='mspace';
