@@ -37,7 +37,7 @@ final class Database {
                 return self::$pdo=$pdo;
             } catch (PDOException $error) {
                 $lastError=$error;
-                if ($socket!=='' || !str_contains($error->getMessage(),'[2002]')) throw $error;
+                if ($socket!=='' || strpos($error->getMessage(),'[2002]')===false) throw $error;
             }
         }
         throw $lastError ?? new \RuntimeException('Database connection failed.');

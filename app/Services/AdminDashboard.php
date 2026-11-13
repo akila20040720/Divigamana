@@ -9,7 +9,8 @@ final class AdminDashboard {
     private const PROVIDER = "CASE WHEN SUBSTR(u.mobile_e164,1,4) IN ('+947') THEN CASE SUBSTR(u.mobile_e164,5,1) WHEN '4' THEN 'dialog' WHEN '7' THEN 'dialog' WHEN '6' THEN 'dialog' WHEN '0' THEN 'mobitel' WHEN '1' THEN 'mobitel' WHEN '5' THEN 'airtel' WHEN '2' THEN 'hutch' WHEN '8' THEN 'hutch' ELSE 'other' END ELSE 'other' END";
     // A newer row for the same carrier supersedes an older state.
     private const ACTIVE = "EXISTS (SELECT 1 FROM user_subscriptions s WHERE s.user_id=u.id AND s.status='active' AND s.starts_at<=? AND s.ends_at>? AND NOT EXISTS (SELECT 1 FROM user_subscriptions newer WHERE newer.user_id=s.user_id AND newer.provider=s.provider AND newer.id>s.id))";
-    public function __construct(private PDO $db) {}
+    private PDO $db;
+    public function __construct(PDO $db) { $this->db=$db; }
     private function rows(string $sql, array $params=[]): array {
         $stmt=$this->db->prepare($sql); $stmt->execute($params); return $stmt->fetchAll(PDO::FETCH_ASSOC);
     }

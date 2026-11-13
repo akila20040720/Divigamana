@@ -48,7 +48,7 @@ if ($filters['from']!=='' && $filters['to']!=='' && $filters['from']>$filters['t
 if (!in_array($filters['provider'],['','dialog','mobitel','airtel','hutch','other'],true)) $filters['provider']='';
 if (!in_array($filters['verification'],['','ideamart','mspace','unverified'],true)) $filters['verification']='';
 $search=preg_replace('/[^0-9+]/','',$filters['search']);
-if (str_starts_with($search,'0')) $search='94'.substr($search,1);
+if (substr($search,0,1)==='0') $search='94'.substr($search,1);
 $filters['search']=substr($search,0,16);
 $data=null;
 if ($authenticated) {
