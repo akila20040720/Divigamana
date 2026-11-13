@@ -24,11 +24,20 @@ expect((int)$r['summary']['total']===3 && (int)$r['summary']['active']===1 && (i
 $by=[]; foreach ($r['funnel'] as $row) $by[$row['provider']]=$row;
 expect((int)$by['dialog']['total']===1 && (int)$by['mobitel']['active']===1 && (int)$by['airtel']['verified']===0,'provider funnel uses mobile prefixes and current states');
 expect((int)$r['verification']['ideamart']===1 && (int)$r['verification']['mspace']===1 && count($r['subscriptions'])===3,'verification and rolling subscription groups');
+expect($r['subscriptionCount']===4 && count($r['subscriptionRows'])===4 && $r['subscriptionRows'][0]['mobile_e164']==='+94751234567' && $r['subscriptionRows'][0]['accepted_at']===$before,'subscription activity includes time and mobile in newest-first order');
 $filters=['from'=>'2026-01-02','to'=>'2026-01-02','provider'=>'mobitel','verification'=>'mspace','search'=>'9471123'];
 $r=$reporter->report($filters);
-expect($r['count']===1 && $r['users'][0]['mobile_e164']==='+94711234567' && (int)$r['verification']['mspace']===1,'date, provider, verification and number filters combine');
+expect($r['count']===1 && $r['users'][0]['mobile_e164']==='+94711234567','date, provider, verification and number filters combine');
+expect((int)$r['verification']['total']===3,'user filters do not affect the verification report');
+$r=$reporter->report($filters,1,['from'=>'2026-01-01','to'=>'2026-01-01']);
+expect((int)$r['verification']['total']===1 && (int)$r['verification']['ideamart']===1 && $r['count']===1,'verification report date range is independent');
 $filters['verification']='unverified';
 expect($reporter->report($filters)['count']===0,'verification filter excludes other states');
 for ($i=4;$i<=30;$i++) $insert->execute([$i,'+9477'.str_pad((string)$i,7,'0',STR_PAD_LEFT),'active',0,null,null,'2026-01-04 10:00:00',null]);
 $r=$reporter->report(['from'=>'','to'=>'','provider'=>'','verification'=>'','search'=>''],2);
 expect($r['pages']===2 && count($r['users'])===5,'user directory paginates');
+
+$sub->execute([5,1,'ideamart','active',$before,$after,date('Y-m-d H:i:s',time()-90000)]);
+for ($i=6;$i<=31;$i++) $sub->execute([$i,1,'ideamart','active',$before,$after,$before]);
+$r=$reporter->report(['from'=>'','to'=>'','provider'=>'','verification'=>'','search'=>''],1,[],2);
+expect($r['subscriptionCount']===30 && $r['subscriptionPages']===2 && count($r['subscriptionRows'])===5,'last-24-hours activity excludes older records and paginates');

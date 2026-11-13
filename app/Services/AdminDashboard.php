@@ -14,7 +14,7 @@ final class AdminDashboard {
     private function rows(string $sql, array $params=[]): array {
         $stmt=$this->db->prepare($sql); $stmt->execute($params); return $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
-    public function report(array $filters, int $page=1): array {
+    public function report(array $filters, int $page=1, array $verificationDates=[], int $subscriptionPage=1): array {
         $now=date('Y-m-d H:i:s');
         $active=self::ACTIVE; $provider=self::PROVIDER;
         $summary=$this->rows("SELECT COUNT(*) total, COALESCE(SUM(CASE WHEN $active THEN 1 ELSE 0 END),0) active, COALESCE(SUM(CASE WHEN u.account_status='blocked' THEN 1 ELSE 0 END),0) blocked FROM users u",[$now,$now])[0];
@@ -29,11 +29,20 @@ final class AdminDashboard {
         if ($filters['verification']==='unverified') $where[]="(u.phone_verified_real=0 OR ((u.ideamart_subscriber_id IS NULL OR u.ideamart_subscriber_id='') AND (u.mspace_subscriber_id IS NULL OR u.mspace_subscriber_id='')))";
         if ($filters['search']!=='') { $where[]='u.mobile_e164 LIKE ?'; $params[]='%'.$filters['search'].'%'; }
         $clause=$where?' WHERE '.implode(' AND ',$where):'';
-        $verification=$this->rows("SELECT COUNT(*) total, COALESCE(SUM(CASE WHEN u.phone_verified_real=1 AND u.ideamart_subscriber_id IS NOT NULL AND u.ideamart_subscriber_id<>'' THEN 1 ELSE 0 END),0) ideamart, COALESCE(SUM(CASE WHEN u.phone_verified_real=1 AND u.mspace_subscriber_id IS NOT NULL AND u.mspace_subscriber_id<>'' THEN 1 ELSE 0 END),0) mspace FROM users u$clause",$params)[0];
-        $count=(int)$verification['total']; $pages=max(1,(int)ceil($count/25)); $page=max(1,min($page,$pages)); $offset=($page-1)*25;
+        $verificationWhere=[]; $verificationParams=[];
+        if (!empty($verificationDates['from'])) { $verificationWhere[]='u.created_at>=?'; $verificationParams[]=$verificationDates['from'].' 00:00:00'; }
+        if (!empty($verificationDates['to'])) { $verificationWhere[]='u.created_at<?'; $verificationParams[]=(new \DateTimeImmutable($verificationDates['to']))->modify('+1 day')->format('Y-m-d').' 00:00:00'; }
+        $verificationClause=$verificationWhere?' WHERE '.implode(' AND ',$verificationWhere):'';
+        $verification=$this->rows("SELECT COUNT(*) total, COALESCE(SUM(CASE WHEN u.phone_verified_real=1 AND u.ideamart_subscriber_id IS NOT NULL AND u.ideamart_subscriber_id<>'' THEN 1 ELSE 0 END),0) ideamart, COALESCE(SUM(CASE WHEN u.phone_verified_real=1 AND u.mspace_subscriber_id IS NOT NULL AND u.mspace_subscriber_id<>'' THEN 1 ELSE 0 END),0) mspace FROM users u$verificationClause",$verificationParams)[0];
+        $count=(int)$this->rows("SELECT COUNT(*) total FROM users u$clause",$params)[0]['total']; $pages=max(1,(int)ceil($count/25)); $page=max(1,min($page,$pages)); $offset=($page-1)*25;
         $users=$this->rows("SELECT u.mobile_e164,u.account_status,u.phone_verified_real,u.ideamart_subscriber_id,u.mspace_subscriber_id,u.created_at,u.last_login_at,$provider provider FROM users u$clause ORDER BY u.created_at DESC,u.id DESC LIMIT 25 OFFSET $offset",$params);
         $since=date('Y-m-d H:i:s',time()-86400);
         $subscriptions=$this->rows("SELECT s.provider,s.status,COUNT(*) total FROM user_subscriptions s WHERE s.accepted_at>=? AND s.accepted_at<=? GROUP BY s.provider,s.status ORDER BY s.provider,s.status",[$since,$now]);
-        return compact('summary','funnel','verification','users','subscriptions','count','pages','page');
+        $subscriptionCount=(int)$this->rows("SELECT COUNT(*) total FROM user_subscriptions s JOIN users u ON u.id=s.user_id WHERE s.accepted_at>=? AND s.accepted_at<=?",[$since,$now])[0]['total'];
+        $subscriptionPages=max(1,(int)ceil($subscriptionCount/25));
+        $subscriptionPage=max(1,min($subscriptionPage,$subscriptionPages));
+        $subscriptionOffset=($subscriptionPage-1)*25;
+        $subscriptionRows=$this->rows("SELECT s.accepted_at,u.mobile_e164,s.provider,s.status FROM user_subscriptions s JOIN users u ON u.id=s.user_id WHERE s.accepted_at>=? AND s.accepted_at<=? ORDER BY s.accepted_at DESC,s.id DESC LIMIT 25 OFFSET $subscriptionOffset",[$since,$now]);
+        return compact('summary','funnel','verification','users','subscriptions','count','pages','page','subscriptionCount','subscriptionPages','subscriptionPage','subscriptionRows');
     }
 }
