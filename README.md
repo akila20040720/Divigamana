@@ -27,20 +27,6 @@ application are not automatically cancelled.
 4. Serve the repository root as the web root, or copy `index.php`, `api.php`, `robots.txt`, `sitemap.xml`, `.htaccess`, and `public/assets/` into `public_html` while keeping `app/` and `config/local.php` above it.
 5. Ensure PHP extensions `pdo_mysql`, `curl`, `mbstring`, and `openssl` are enabled. Enforce HTTPS and set `app_env` to `production` before launch.
 
-## Admin dashboard
-
-Visit `/admin` to access the operational dashboard with the `ADMIN_USERNAME` and
-`ADMIN_PASSWORD` values from the private environment configuration.
-
-Before using the expanded user management dashboard on an existing database, run
-[`database/migration_admin_dashboard.sql`](database/migration_admin_dashboard.sql) once
-in phpMyAdmin. It adds account blocking and last-login audit fields; new installations
-receive them automatically from `database/schema.sql`.
-
-For existing databases, also run [`database/migration_dashboard_analytics.sql`](database/migration_dashboard_analytics.sql)
-once to add indexes for paginated user cohorts and date-scoped carrier payment and
-subscription reports. New installations receive these indexes from `database/schema.sql`.
-
 Before enabling either CAAS switch on an existing database, also run
 [`database/migration_production_hardening.sql`](database/migration_production_hardening.sql).
 It keeps the application's immutable idempotency key separate from the carrier's internal
@@ -50,13 +36,7 @@ For existing databases, run [`database/migration_mspace_subscriber.sql`](databas
 before enabling the mSpace OTP flow. It stores the masked subscriber identity returned by
 mSpace OTP verification, which is required for subsequent CaaS requests.
 
-The subscriber dashboard reads live user and subscription records. Its provider counts use
-mobile-number prefixes; the verification date is the user's joined date, since historical
-verification timestamps are not stored. Subscription activity covers real active records
-accepted in the rolling 24-hour window. Apply
-[`database/migration_subscriber_dashboard.sql`](database/migration_subscriber_dashboard.sql)
-once to an existing installation for the reporting index. Do not import `schema.sql` over
-an existing database: it is for fresh installations. The seed uses `INSERT IGNORE` so it
+Do not import `schema.sql` over an existing database: it is for fresh installations. The seed uses `INSERT IGNORE` so it
 can add missing catalog entries without overwriting existing service settings or users.
 
 ## Billing verification
@@ -102,8 +82,7 @@ Never place this key in JavaScript, Git, public files, browser responses, or err
 - [ ] Set `app_env` to `production`, `mock_mode` to `false`, and production Qwen credentials.
 - [ ] Configure HTTPS redirect, PHP 8.1+ and secure session cookies.
 - [ ] Configure a daily optional cron to warm Rahu cache after a cache writer is added; current calculation is deterministic on each request using the Colombo configuration. Qwen generates readings; it is not used to guess a time-sensitive Rahu Kalaya window.
-- [ ] Run `migration_admin_dashboard.sql` and `migration_production_hardening.sql` once on an existing database.
-- [ ] Change the hardcoded `/admin` credentials before production deployment.
+- [ ] Run `migration_production_hardening.sql` once on an existing database.
 - [ ] Run `php tests/run.php` and `php scripts/preflight.php` on the production host.
 - [ ] Keep both CAAS live switches off until carrier approval and supervised limited-production testing.
 - [ ] Add privacy/deletion workflow, real SMS, billing authorization/idempotency/reconciliation and tested backups before accepting real payments.
