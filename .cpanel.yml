@@ -6,6 +6,8 @@
 deployment:
   tasks:
     - export DEPLOYPATH=/home/rakiyacl/divigamana.lk
+    - /bin/rm -f "$DEPLOYPATH/admin/index.php"
+    - /bin/rmdir "$DEPLOYPATH/admin" 2>/dev/null || true
     - /bin/mkdir -p "$DEPLOYPATH/public" "$DEPLOYPATH/app" "$DEPLOYPATH/config"
     - /bin/cp index.php terms.php privacy.php api.php robots.txt sitemap.xml .htaccess "$DEPLOYPATH/"
     - /bin/cp -R app/* "$DEPLOYPATH/app/"
