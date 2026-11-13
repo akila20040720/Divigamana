@@ -2,3 +2,4 @@
 
 storage/logs/*.log
 config/local.php
+config/config.example.php
