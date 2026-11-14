@@ -50,12 +50,29 @@ final class ApiController {
         $amounts=array_values(array_unique(array_map(static fn(array $service): string=>$service['price_lkr'],array_filter(ServiceCatalog::all(),static fn(array $service): bool=>$service['paid']))));
         return in_array($amount,$amounts,true);
     }
-    private static function subscriptionState(string $providerStatus): string {
+    private static function subscriptionState(string $providerStatus,string $provider=''): string {
         $providerStatus=strtoupper(trim($providerStatus));
-        if ($providerStatus==='REGISTERED') return 'active';
+        if ($providerStatus==='REGISTERED'||($provider==='mspace'&&in_array($providerStatus,['ACTIVE','SUBSCRIBED'],true))) return 'active';
         if (in_array($providerStatus,['PENDING','PENDING CHARGE','CHARGE'],true)) return 'pending';
         if ($providerStatus==='UNREGISTERED') return 'cancelled';
         return 'inactive';
+    }
+    private static function mspaceSubscriptionExistsSql(): string {
+        return "EXISTS(
+            SELECT 1
+            FROM user_subscriptions s
+            WHERE s.user_id=users.id
+              AND s.provider='mspace'
+              AND s.status='active'
+              AND (s.ends_at>NOW() OR UPPER(COALESCE(s.provider_status,'')) IN ('REGISTERED','ACTIVE','SUBSCRIBED'))
+              AND NOT EXISTS(
+                  SELECT 1
+                  FROM user_subscriptions newer
+                  WHERE newer.user_id=s.user_id
+                    AND newer.provider=s.provider
+                    AND newer.id>s.id
+              )
+        )";
     }
     private static function subscriptionEndSql(string $frequency): string {
         $frequency=strtolower(trim($frequency));
@@ -65,7 +82,7 @@ final class ApiController {
         return 'DATE_ADD(NOW(),INTERVAL 1 DAY)';
     }
     private static function saveProviderSubscription($pdo,int $userId,string $provider,string $providerStatus,string $frequency='',?string $notifiedAt=null): void {
-        $status=self::subscriptionState($providerStatus);
+        $status=self::subscriptionState($providerStatus,$provider);
         // Providers do not send a notification ID. Update only the latest row when
         // a callback repeats the current state; a state change gets a new history row.
         $normalizedProviderStatus=strtoupper(trim($providerStatus));
@@ -572,7 +589,7 @@ final class ApiController {
             $account=$pdo->prepare('SELECT account_status FROM users WHERE id=? LIMIT 1');
             $account->execute([$user['id']]);
             if ($account->fetchColumn()==='blocked') Http::json(['ok'=>false,'error'=>'This account has been blocked. Contact support for assistance.'],403);
-            $statement=$pdo->prepare("SELECT phone_verified_real,mobile_e164,mspace_subscriber_id,EXISTS(SELECT 1 FROM user_subscriptions s WHERE s.user_id=users.id AND s.provider='mspace' AND s.status='active') AS mspace_subscription_active FROM users WHERE id=? LIMIT 1");
+            $statement=$pdo->prepare("SELECT phone_verified_real,mobile_e164,mspace_subscriber_id,".self::mspaceSubscriptionExistsSql()." AS mspace_subscription_active FROM users WHERE id=? LIMIT 1");
             $statement->execute([$user['id']]);
             $account=$statement->fetch(\PDO::FETCH_ASSOC);
             $verified=(bool)($account['phone_verified_real']??false);
@@ -630,7 +647,7 @@ final class ApiController {
                 $account=$pdo->prepare('SELECT account_status FROM users WHERE id=? LIMIT 1');
                 $account->execute([$user['id']]);
                 if ($account->fetchColumn()==='blocked') Http::json(['ok'=>false,'error'=>'This account has been blocked. Contact support for assistance.'],403);
-                $verified=$pdo->prepare("SELECT phone_verified_real,mobile_e164,mspace_subscriber_id,EXISTS(SELECT 1 FROM user_subscriptions s WHERE s.user_id=users.id AND s.provider='mspace' AND s.status='active') AS mspace_subscription_active FROM users WHERE id=? LIMIT 1");
+                $verified=$pdo->prepare("SELECT phone_verified_real,mobile_e164,mspace_subscriber_id,".self::mspaceSubscriptionExistsSql()." AS mspace_subscription_active FROM users WHERE id=? LIMIT 1");
                 $verified->execute([$user['id']]);
                 $accountRecord=$verified->fetch(\PDO::FETCH_ASSOC);
                 if (!$accountRecord||!$accountRecord['phone_verified_real']) Http::json(['ok'=>false,'error'=>'Verify your mobile number by OTP before using this service.'],403);

@@ -118,6 +118,9 @@ check(is_string($controllerSource)&&str_contains($controllerSource,"provider=? A
 check(is_string($controllerSource)&&str_contains($controllerSource,"saveProviderSubscription"),'provider subscriptions are persisted under the verified carrier');
 check(is_string($controllerSource)&&str_contains($controllerSource,"self::touchLogin(\$pdo,(int)\$user['id'])"),'authenticated status refreshes the last-login timestamp');
 check(is_string($controllerSource)&&str_contains($controllerSource,'mSpace rejected this number. Confirm it is an active Mobitel 070 or 071 number'),'Mobitel OTP remains on mSpace when the provider rejects the recipient');
+check(is_string($controllerSource)&&str_contains($controllerSource,'mspaceSubscriptionExistsSql'),'mSpace access uses a shared subscription gate');
+check(is_string($controllerSource)&&str_contains($controllerSource,"'ACTIVE','SUBSCRIBED'"),'mSpace active subscription states bypass CAAS');
+check(is_string($controllerSource)&&str_contains($controllerSource,'$provider===\'mspace\''),'extra active states are limited to mSpace');
 $prices=array_values(array_unique(array_column(array_filter(Divigamana\Services\ServiceCatalog::all(),static fn(array $service): bool=>$service['paid']),'price_lkr')));
 check($prices===['20.00'],'all paid readings have a fixed one-time LKR 20.00 price');
 
