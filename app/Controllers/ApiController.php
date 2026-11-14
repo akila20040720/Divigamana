@@ -355,7 +355,27 @@ final class ApiController {
         }
     }
     public static function unsubscribe(): void {
-        $input=Http::input(); Http::requirePostCsrf($input); $user=self::ideamartUser();
+        $input=Http::input(); Http::requirePostCsrf($input);
+        $sessionUser=Session::user();
+        if ($sessionUser) {
+            try {
+                $statement=Database::pdo()->prepare('SELECT mobile_e164,mspace_subscriber_id FROM users WHERE id=? LIMIT 1');
+                $statement->execute([$sessionUser['id']]);
+                $account=$statement->fetch(\PDO::FETCH_ASSOC) ?: [];
+                if (self::isMobitel((string)($account['mobile_e164']??'')) && !empty($account['mspace_subscriber_id'])) {
+                    Http::json([
+                        'ok'=>true,
+                        'provider'=>'mspace',
+                        'manual'=>true,
+                        'sms_number'=>'77006',
+                        'sms_message'=>'DREG divigamana',
+                    ]);
+                }
+            } catch (\Throwable $error) {
+                self::databaseFailure($error);
+            }
+        }
+        $user=self::ideamartUser();
         try {
             $response=(new IdeamartClient())->unsubscribe($user['ideamart_subscriber_id']);
             if (!IdeamartClient::successful($response,['E1356'])) Http::json(['ok'=>false,'error'=>'Unsubscription could not be completed.'],502);
@@ -477,7 +497,23 @@ final class ApiController {
         catch (\Throwable $error) { error_log('Ideamart balance failed: '.$error->getMessage()); Http::json(['ok'=>false,'error'=>'Charging service is temporarily unavailable.'],503); }
     }
     public static function caasCharge(): void {
-        $input=Http::input(); Http::requirePostCsrf($input); $user=self::ideamartUser();
+        $input=Http::input(); Http::requirePostCsrf($input);
+        $sessionUser=Session::user();
+        if ($sessionUser) {
+            try {
+                $statement=Database::pdo()->prepare("SELECT mobile_e164,mspace_subscriber_id,".self::mspaceSubscriptionExistsSql()." AS mspace_subscription_active FROM users WHERE id=? LIMIT 1");
+                $statement->execute([$sessionUser['id']]);
+                $account=$statement->fetch(\PDO::FETCH_ASSOC) ?: [];
+                if (self::isMobitel((string)($account['mobile_e164']??''))
+                    && !empty($account['mspace_subscriber_id'])
+                    && !empty($account['mspace_subscription_active'])) {
+                    Http::json(['ok'=>true,'free'=>true,'provider'=>'mspace']);
+                }
+            } catch (\Throwable $error) {
+                self::databaseFailure($error);
+            }
+        }
+        $user=self::ideamartUser();
         $service=ServiceCatalog::find((string)($input['service']??''));
         if (!$service||!$service['paid']) Http::json(['ok'=>false,'error'=>'A paid service is required for carrier billing.'],422);
         $amount=(string)$service['price_lkr'];

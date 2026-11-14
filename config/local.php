@@ -1,4 +1,3 @@
-
 <?php
 /**
  * Divigamana - Production Configuration
@@ -179,4 +178,3 @@ return [
     ],
 
 ];
-
