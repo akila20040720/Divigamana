@@ -147,6 +147,9 @@ final class ApiController {
         Http::requirePostCsrf($input);
         $mobile=self::mobile((string)($input['mobile']??''));
         if (!$mobile) Http::json(['ok'=>false,'error'=>'Enter a valid Sri Lankan mobile number.'],422);
+        if (($input['provider']??'')==='mspace'&&!self::isMobitel($mobile)) {
+            Http::json(['ok'=>false,'error'=>'Mobitel access is available only for 070 and 071 numbers.'],422);
+        }
         $rateKey='otp:'.hash('sha256',$mobile.'|'.(string)($_SERVER['REMOTE_ADDR']??''));
         if (!self::development() && !self::rate($rateKey,60)) Http::json(['ok'=>false,'error'=>'Please wait before requesting another code.'],429);
         if (self::isMobitel($mobile)) {
