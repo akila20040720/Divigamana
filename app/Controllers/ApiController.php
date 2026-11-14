@@ -572,11 +572,15 @@ final class ApiController {
             $account=$pdo->prepare('SELECT account_status FROM users WHERE id=? LIMIT 1');
             $account->execute([$user['id']]);
             if ($account->fetchColumn()==='blocked') Http::json(['ok'=>false,'error'=>'This account has been blocked. Contact support for assistance.'],403);
-            $statement=$pdo->prepare('SELECT phone_verified_real FROM users WHERE id=? LIMIT 1');
+            $statement=$pdo->prepare("SELECT phone_verified_real,mobile_e164,mspace_subscriber_id,EXISTS(SELECT 1 FROM user_subscriptions s WHERE s.user_id=users.id AND s.provider='mspace' AND s.status='active') AS mspace_subscription_active FROM users WHERE id=? LIMIT 1");
             $statement->execute([$user['id']]);
-            $verified=(bool)$statement->fetchColumn();
+            $account=$statement->fetch(\PDO::FETCH_ASSOC);
+            $verified=(bool)($account['phone_verified_real']??false);
             self::touchLogin($pdo,(int)$user['id']);
-            Http::json(['ok'=>true,'authenticated'=>true,'user'=>$user,'subscribed'=>$verified,'subscription'=>null]);
+            $mspaceCaasFree=self::isMobitel((string)($account['mobile_e164']??''))
+                && !empty($account['mspace_subscriber_id'])
+                && !empty($account['mspace_subscription_active']);
+            Http::json(['ok'=>true,'authenticated'=>true,'user'=>$user,'subscribed'=>$verified,'mspace_caas_free'=>$mspaceCaasFree,'subscription'=>null]);
         } catch (\Throwable $error) { self::databaseFailure($error); }
     }
     public static function generate(): void {
@@ -588,7 +592,6 @@ final class ApiController {
         if (!$service) Http::json(['ok'=>false,'error'=>'Service not found.'],404);
         $chargeReference=trim((string)($_SESSION['caas_paid_reference']??''));
         $chargedService=(string)($_SESSION['caas_paid_service']??'');
-        if ($service['paid']&&(!preg_match('/^divigamana-[A-Za-z0-9._-]{1,100}$/',$chargeReference)||$chargedService!==$service['slug'])) Http::json(['ok'=>false,'error'=>'A successful mobile carrier charge is required before this paid reading can start.'],402);
         $submittedAnswers=is_array($input['answers']??null)?$input['answers']:[];
         $answers=[];
         foreach ($service['fields'] as $field) {
@@ -627,16 +630,24 @@ final class ApiController {
                 $account=$pdo->prepare('SELECT account_status FROM users WHERE id=? LIMIT 1');
                 $account->execute([$user['id']]);
                 if ($account->fetchColumn()==='blocked') Http::json(['ok'=>false,'error'=>'This account has been blocked. Contact support for assistance.'],403);
-                $verified=$pdo->prepare('SELECT phone_verified_real FROM users WHERE id=? LIMIT 1');
+                $verified=$pdo->prepare("SELECT phone_verified_real,mobile_e164,mspace_subscriber_id,EXISTS(SELECT 1 FROM user_subscriptions s WHERE s.user_id=users.id AND s.provider='mspace' AND s.status='active') AS mspace_subscription_active FROM users WHERE id=? LIMIT 1");
                 $verified->execute([$user['id']]);
-                if (!$verified->fetchColumn()) Http::json(['ok'=>false,'error'=>'Verify your mobile number by OTP before using this service.'],403);
-                $paymentProvider=self::isMobitel((string)$user['mobile_e164'])?'mspace':'ideamart';
+                $accountRecord=$verified->fetch(\PDO::FETCH_ASSOC);
+                if (!$accountRecord||!$accountRecord['phone_verified_real']) Http::json(['ok'=>false,'error'=>'Verify your mobile number by OTP before using this service.'],403);
+                $paymentProvider=self::isMobitel((string)$accountRecord['mobile_e164'])?'mspace':'ideamart';
+                $mspaceCaasFree=$paymentProvider==='mspace'
+                    && !empty($accountRecord['mspace_subscriber_id'])
+                    && !empty($accountRecord['mspace_subscription_active']);
+                if ($service['paid']&&!$mspaceCaasFree
+                    && (!preg_match('/^divigamana-[A-Za-z0-9._-]{1,100}$/',$chargeReference)||$chargedService!==$service['slug'])) {
+                    Http::json(['ok'=>false,'error'=>'A successful mobile carrier charge is required before this paid reading can start.'],402);
+                }
                 $chargingAvailable=$paymentProvider==='mspace'
                     ? (new MspaceClient())->chargingEnabled()
                     : (new IdeamartClient())->chargingEnabled();
-                if ($service['paid']&&!$chargingAvailable) Http::json(['ok'=>false,'error'=>'Carrier billing is temporarily unavailable.'],503);
+                if ($service['paid']&&!$mspaceCaasFree&&!$chargingAvailable) Http::json(['ok'=>false,'error'=>'Carrier billing is temporarily unavailable.'],503);
                 $paidChargeId=0;
-                if ($service['paid']) {
+                if ($service['paid']&&!$mspaceCaasFree) {
                     $paidCharge=$pdo->prepare("SELECT id FROM payment_transactions WHERE user_id=? AND provider=? AND external_reference=? AND amount=? AND status='paid' AND (request_id IS NULL OR request_id=(SELECT id FROM horoscope_requests WHERE user_id=? AND idempotency_key=? LIMIT 1)) LIMIT 1");
                     $paidCharge->execute([$user['id'],$paymentProvider,$chargeReference,$service['price_lkr'],$user['id'],$idempotency]);
                     $paidChargeId=(int)$paidCharge->fetchColumn();
@@ -650,7 +661,7 @@ final class ApiController {
                 $externalTrxId=null;
                 if ($existingRow) {
                     $requestId=(int)$existingRow['id'];
-                    if ($service['paid']&&$existingRow['payment_status']!=='paid') {
+                    if ($service['paid']&&!$mspaceCaasFree&&$existingRow['payment_status']!=='paid') {
                         $message=$existingRow['payment_status']==='authorized'?'The carrier charge is awaiting reconciliation. Do not submit another payment.':'The previous carrier charge was not completed.';
                         Http::json(['ok'=>false,'error'=>$message],$existingRow['payment_status']==='authorized'?409:402);
                     }
@@ -659,7 +670,7 @@ final class ApiController {
                     $pdo->beginTransaction();
                     $pdo->prepare("INSERT INTO horoscope_requests (user_id,service_id,status,locale,questionnaire_json,idempotency_key) VALUES (?,?, 'processing',?,?,?)")->execute([$user['id'],$service['id'],$input['locale']??'si-LK',json_encode($answers,JSON_UNESCAPED_UNICODE),$idempotency]);
                     $requestId=(int)$pdo->lastInsertId();
-                    if ($service['paid']) {
+                    if ($service['paid']&&!$mspaceCaasFree) {
                         $claim=$pdo->prepare("UPDATE payment_transactions SET request_id=?,description=? WHERE id=? AND provider=? AND status='paid' AND request_id IS NULL");
                         $claim->execute([$requestId,ucfirst($paymentProvider).' CAAS '.$service['slug'].' one-time charge',$paidChargeId,$paymentProvider]);
                         if ($claim->rowCount()!==1) {
