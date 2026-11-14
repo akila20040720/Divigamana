@@ -74,6 +74,31 @@ final class ApiController {
               )
         )";
     }
+    private static function mspaceFreeAccessSql(): string {
+        return "(
+            ".self::mspaceSubscriptionExistsSql()."
+            OR (
+                users.phone_verified_real=1
+                AND users.mspace_subscriber_id IS NOT NULL
+                AND users.mspace_subscriber_id<>''
+                AND users.mobile_e164 REGEXP '^\\+947[01][0-9]{7}$'
+                AND NOT EXISTS(
+                    SELECT 1
+                    FROM user_subscriptions cancelled
+                    WHERE cancelled.user_id=users.id
+                      AND cancelled.provider='mspace'
+                      AND cancelled.status IN ('cancelled','inactive','expired')
+                      AND NOT EXISTS(
+                          SELECT 1
+                          FROM user_subscriptions newer
+                          WHERE newer.user_id=cancelled.user_id
+                            AND newer.provider='mspace'
+                            AND newer.id>cancelled.id
+                      )
+                )
+            )
+        )";
+    }
     private static function subscriptionEndSql(string $frequency): string {
         $frequency=strtolower(trim($frequency));
         if (in_array($frequency,['weekly','week'],true)) return 'DATE_ADD(NOW(),INTERVAL 7 DAY)';
@@ -363,6 +388,7 @@ final class ApiController {
                 $statement->execute([$sessionUser['id']]);
                 $account=$statement->fetch(\PDO::FETCH_ASSOC) ?: [];
                 if (self::isMobitel((string)($account['mobile_e164']??'')) && !empty($account['mspace_subscriber_id'])) {
+                    self::saveProviderSubscription(Database::pdo(),(int)$sessionUser['id'],'mspace','UNREGISTERED');
                     Http::json([
                         'ok'=>true,
                         'provider'=>'mspace',
@@ -501,7 +527,7 @@ final class ApiController {
         $sessionUser=Session::user();
         if ($sessionUser) {
             try {
-                $statement=Database::pdo()->prepare("SELECT mobile_e164,mspace_subscriber_id,".self::mspaceSubscriptionExistsSql()." AS mspace_subscription_active FROM users WHERE id=? LIMIT 1");
+                $statement=Database::pdo()->prepare("SELECT mobile_e164,mspace_subscriber_id,".self::mspaceFreeAccessSql()." AS mspace_subscription_active FROM users WHERE id=? LIMIT 1");
                 $statement->execute([$sessionUser['id']]);
                 $account=$statement->fetch(\PDO::FETCH_ASSOC) ?: [];
                 if (self::isMobitel((string)($account['mobile_e164']??''))
@@ -625,7 +651,7 @@ final class ApiController {
             $account=$pdo->prepare('SELECT account_status FROM users WHERE id=? LIMIT 1');
             $account->execute([$user['id']]);
             if ($account->fetchColumn()==='blocked') Http::json(['ok'=>false,'error'=>'This account has been blocked. Contact support for assistance.'],403);
-            $statement=$pdo->prepare("SELECT phone_verified_real,mobile_e164,mspace_subscriber_id,".self::mspaceSubscriptionExistsSql()." AS mspace_subscription_active FROM users WHERE id=? LIMIT 1");
+            $statement=$pdo->prepare("SELECT phone_verified_real,mobile_e164,mspace_subscriber_id,".self::mspaceFreeAccessSql()." AS mspace_subscription_active FROM users WHERE id=? LIMIT 1");
             $statement->execute([$user['id']]);
             $account=$statement->fetch(\PDO::FETCH_ASSOC);
             $verified=(bool)($account['phone_verified_real']??false);
@@ -633,7 +659,7 @@ final class ApiController {
             $mspaceCaasFree=self::isMobitel((string)($account['mobile_e164']??''))
                 && !empty($account['mspace_subscriber_id'])
                 && !empty($account['mspace_subscription_active']);
-            Http::json(['ok'=>true,'authenticated'=>true,'user'=>$user,'subscribed'=>$verified,'mspace_caas_free'=>$mspaceCaasFree,'subscription'=>null]);
+            Http::json(['ok'=>true,'authenticated'=>true,'user'=>$user,'subscribed'=>$verified,'provider'=>$mspaceCaasFree?'mspace':(!empty($account['mspace_subscriber_id'])?'mspace':'ideamart'),'mspace_interface'=>$mspaceCaasFree,'mspace_caas_free'=>$mspaceCaasFree,'subscription'=>null]);
         } catch (\Throwable $error) { self::databaseFailure($error); }
     }
     public static function generate(): void {
@@ -683,7 +709,7 @@ final class ApiController {
                 $account=$pdo->prepare('SELECT account_status FROM users WHERE id=? LIMIT 1');
                 $account->execute([$user['id']]);
                 if ($account->fetchColumn()==='blocked') Http::json(['ok'=>false,'error'=>'This account has been blocked. Contact support for assistance.'],403);
-                $verified=$pdo->prepare("SELECT phone_verified_real,mobile_e164,mspace_subscriber_id,".self::mspaceSubscriptionExistsSql()." AS mspace_subscription_active FROM users WHERE id=? LIMIT 1");
+                $verified=$pdo->prepare("SELECT phone_verified_real,mobile_e164,mspace_subscriber_id,".self::mspaceFreeAccessSql()." AS mspace_subscription_active FROM users WHERE id=? LIMIT 1");
                 $verified->execute([$user['id']]);
                 $accountRecord=$verified->fetch(\PDO::FETCH_ASSOC);
                 if (!$accountRecord||!$accountRecord['phone_verified_real']) Http::json(['ok'=>false,'error'=>'Verify your mobile number by OTP before using this service.'],403);
