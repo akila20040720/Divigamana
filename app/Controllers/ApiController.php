@@ -52,7 +52,7 @@ final class ApiController {
     }
     private static function subscriptionState(string $providerStatus,string $provider=''): string {
         $providerStatus=strtoupper(trim($providerStatus));
-        if ($providerStatus==='REGISTERED'||($provider==='mspace'&&in_array($providerStatus,['ACTIVE','SUBSCRIBED'],true))) return 'active';
+        if ($providerStatus==='REGISTERED'||($provider==='mspace'&&in_array($providerStatus,['ACTIVE','SUBSCRIBED','ENABLED','SUCCESS'],true))) return 'active';
         if (in_array($providerStatus,['PENDING','PENDING CHARGE','CHARGE'],true)) return 'pending';
         if ($providerStatus==='UNREGISTERED') return 'cancelled';
         return 'inactive';
@@ -64,7 +64,7 @@ final class ApiController {
             WHERE s.user_id=users.id
               AND s.provider='mspace'
               AND s.status='active'
-              AND (s.ends_at>NOW() OR UPPER(COALESCE(s.provider_status,'')) IN ('REGISTERED','ACTIVE','SUBSCRIBED'))
+              AND (s.ends_at>NOW() OR UPPER(COALESCE(s.provider_status,'')) IN ('REGISTERED','ACTIVE','SUBSCRIBED','ENABLED','SUCCESS'))
               AND NOT EXISTS(
                   SELECT 1
                   FROM user_subscriptions newer
