@@ -52,7 +52,7 @@ final class ApiController {
     }
     private static function subscriptionState(string $providerStatus,string $provider=''): string {
         $providerStatus=strtoupper(trim($providerStatus));
-        if ($providerStatus==='REGISTERED'||($provider==='mspace'&&in_array($providerStatus,['ACTIVE','SUBSCRIBED','ENABLED','SUCCESS'],true))) return 'active';
+        if ($providerStatus==='REGISTERED'||($provider==='mspace'&&in_array($providerStatus,['ACTIVE','SUBSCRIBED'],true))) return 'active';
         if (in_array($providerStatus,['PENDING','PENDING CHARGE','CHARGE'],true)) return 'pending';
         if ($providerStatus==='UNREGISTERED') return 'cancelled';
         return 'inactive';
@@ -64,7 +64,7 @@ final class ApiController {
             WHERE s.user_id=users.id
               AND s.provider='mspace'
               AND s.status='active'
-              AND (s.ends_at>NOW() OR UPPER(COALESCE(s.provider_status,'')) IN ('REGISTERED','ACTIVE','SUBSCRIBED','ENABLED','SUCCESS'))
+              AND (s.ends_at>NOW() OR UPPER(COALESCE(s.provider_status,'')) IN ('REGISTERED','ACTIVE','SUBSCRIBED'))
               AND NOT EXISTS(
                   SELECT 1
                   FROM user_subscriptions newer
@@ -72,31 +72,6 @@ final class ApiController {
                     AND newer.provider=s.provider
                     AND newer.id>s.id
               )
-        )";
-    }
-    private static function mspaceFreeAccessSql(): string {
-        return "(
-            ".self::mspaceSubscriptionExistsSql()."
-            OR (
-                users.phone_verified_real=1
-                AND users.mspace_subscriber_id IS NOT NULL
-                AND users.mspace_subscriber_id<>''
-                AND users.mobile_e164 REGEXP '^\\+947[01][0-9]{7}$'
-                AND NOT EXISTS(
-                    SELECT 1
-                    FROM user_subscriptions cancelled
-                    WHERE cancelled.user_id=users.id
-                      AND cancelled.provider='mspace'
-                      AND cancelled.status IN ('cancelled','inactive','expired')
-                      AND NOT EXISTS(
-                          SELECT 1
-                          FROM user_subscriptions newer
-                          WHERE newer.user_id=cancelled.user_id
-                            AND newer.provider='mspace'
-                            AND newer.id>cancelled.id
-                      )
-                )
-            )
         )";
     }
     private static function subscriptionEndSql(string $frequency): string {
@@ -380,28 +355,7 @@ final class ApiController {
         }
     }
     public static function unsubscribe(): void {
-        $input=Http::input(); Http::requirePostCsrf($input);
-        $sessionUser=Session::user();
-        if ($sessionUser) {
-            try {
-                $statement=Database::pdo()->prepare('SELECT mobile_e164,mspace_subscriber_id FROM users WHERE id=? LIMIT 1');
-                $statement->execute([$sessionUser['id']]);
-                $account=$statement->fetch(\PDO::FETCH_ASSOC) ?: [];
-                if (self::isMobitel((string)($account['mobile_e164']??'')) && !empty($account['mspace_subscriber_id'])) {
-                    self::saveProviderSubscription(Database::pdo(),(int)$sessionUser['id'],'mspace','UNREGISTERED');
-                    Http::json([
-                        'ok'=>true,
-                        'provider'=>'mspace',
-                        'manual'=>true,
-                        'sms_number'=>'77006',
-                        'sms_message'=>'DREG divigamana',
-                    ]);
-                }
-            } catch (\Throwable $error) {
-                self::databaseFailure($error);
-            }
-        }
-        $user=self::ideamartUser();
+        $input=Http::input(); Http::requirePostCsrf($input); $user=self::ideamartUser();
         try {
             $response=(new IdeamartClient())->unsubscribe($user['ideamart_subscriber_id']);
             if (!IdeamartClient::successful($response,['E1356'])) Http::json(['ok'=>false,'error'=>'Unsubscription could not be completed.'],502);
@@ -523,23 +477,7 @@ final class ApiController {
         catch (\Throwable $error) { error_log('Ideamart balance failed: '.$error->getMessage()); Http::json(['ok'=>false,'error'=>'Charging service is temporarily unavailable.'],503); }
     }
     public static function caasCharge(): void {
-        $input=Http::input(); Http::requirePostCsrf($input);
-        $sessionUser=Session::user();
-        if ($sessionUser) {
-            try {
-                $statement=Database::pdo()->prepare("SELECT mobile_e164,mspace_subscriber_id,".self::mspaceFreeAccessSql()." AS mspace_subscription_active FROM users WHERE id=? LIMIT 1");
-                $statement->execute([$sessionUser['id']]);
-                $account=$statement->fetch(\PDO::FETCH_ASSOC) ?: [];
-                if (self::isMobitel((string)($account['mobile_e164']??''))
-                    && !empty($account['mspace_subscriber_id'])
-                    && !empty($account['mspace_subscription_active'])) {
-                    Http::json(['ok'=>true,'free'=>true,'provider'=>'mspace']);
-                }
-            } catch (\Throwable $error) {
-                self::databaseFailure($error);
-            }
-        }
-        $user=self::ideamartUser();
+        $input=Http::input(); Http::requirePostCsrf($input); $user=self::ideamartUser();
         $service=ServiceCatalog::find((string)($input['service']??''));
         if (!$service||!$service['paid']) Http::json(['ok'=>false,'error'=>'A paid service is required for carrier billing.'],422);
         $amount=(string)$service['price_lkr'];
@@ -651,7 +589,7 @@ final class ApiController {
             $account=$pdo->prepare('SELECT account_status FROM users WHERE id=? LIMIT 1');
             $account->execute([$user['id']]);
             if ($account->fetchColumn()==='blocked') Http::json(['ok'=>false,'error'=>'This account has been blocked. Contact support for assistance.'],403);
-            $statement=$pdo->prepare("SELECT phone_verified_real,mobile_e164,mspace_subscriber_id,".self::mspaceFreeAccessSql()." AS mspace_subscription_active FROM users WHERE id=? LIMIT 1");
+            $statement=$pdo->prepare("SELECT phone_verified_real,mobile_e164,mspace_subscriber_id,".self::mspaceSubscriptionExistsSql()." AS mspace_subscription_active FROM users WHERE id=? LIMIT 1");
             $statement->execute([$user['id']]);
             $account=$statement->fetch(\PDO::FETCH_ASSOC);
             $verified=(bool)($account['phone_verified_real']??false);
@@ -659,7 +597,7 @@ final class ApiController {
             $mspaceCaasFree=self::isMobitel((string)($account['mobile_e164']??''))
                 && !empty($account['mspace_subscriber_id'])
                 && !empty($account['mspace_subscription_active']);
-            Http::json(['ok'=>true,'authenticated'=>true,'user'=>$user,'subscribed'=>$verified,'provider'=>$mspaceCaasFree?'mspace':(!empty($account['mspace_subscriber_id'])?'mspace':'ideamart'),'mspace_interface'=>$mspaceCaasFree,'mspace_caas_free'=>$mspaceCaasFree,'subscription'=>null]);
+            Http::json(['ok'=>true,'authenticated'=>true,'user'=>$user,'subscribed'=>$verified,'mspace_caas_free'=>$mspaceCaasFree,'subscription'=>null]);
         } catch (\Throwable $error) { self::databaseFailure($error); }
     }
     public static function generate(): void {
@@ -709,7 +647,7 @@ final class ApiController {
                 $account=$pdo->prepare('SELECT account_status FROM users WHERE id=? LIMIT 1');
                 $account->execute([$user['id']]);
                 if ($account->fetchColumn()==='blocked') Http::json(['ok'=>false,'error'=>'This account has been blocked. Contact support for assistance.'],403);
-                $verified=$pdo->prepare("SELECT phone_verified_real,mobile_e164,mspace_subscriber_id,".self::mspaceFreeAccessSql()." AS mspace_subscription_active FROM users WHERE id=? LIMIT 1");
+                $verified=$pdo->prepare("SELECT phone_verified_real,mobile_e164,mspace_subscriber_id,".self::mspaceSubscriptionExistsSql()." AS mspace_subscription_active FROM users WHERE id=? LIMIT 1");
                 $verified->execute([$user['id']]);
                 $accountRecord=$verified->fetch(\PDO::FETCH_ASSOC);
                 if (!$accountRecord||!$accountRecord['phone_verified_real']) Http::json(['ok'=>false,'error'=>'Verify your mobile number by OTP before using this service.'],403);
