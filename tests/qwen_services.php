@@ -15,7 +15,7 @@ namespace Divigamana\Services {
 }
 namespace {
     if (PHP_SAPI!=='cli') { http_response_code(404); exit; }
-    define('APP_CONFIG',['qwen'=>['api_key'=>'test-key','base_url'=>'https://dashscope-intl.aliyuncs.com/compatible-mode/v1','model'=>'qwen4-max','timeout_seconds'=>45,'max_output_tokens'=>2200,'temperature'=>0.65,'mock_mode'=>false]]);
+    define('APP_CONFIG',['qwen'=>['api_key'=>'test-key','base_url'=>'https://token-plan.ap-southeast-1.maas.aliyuncs.com','model'=>'qwen4-max-preview','timeout_seconds'=>45,'max_output_tokens'=>2200,'temperature'=>0.65,'mock_mode'=>false]]);
     require dirname(__DIR__).'/app/Services/ServiceCatalog.php';
     require dirname(__DIR__).'/app/Services/QwenProvider.php';
     $common=['title'=>'Reading','disclaimer'=>'For reflection','guidance'=>'Consider a small step.'];
@@ -45,8 +45,8 @@ namespace {
                 $result=(new \Divigamana\Services\QwenProvider())->generate($service,$answers,$locale,['reading_reference'=>'test-reference']);
                 $request=$GLOBALS['qwen_test_request']??[];
                 $body=$result['result']??[];
-                $valid=($request['model']??'')==='qwen4-max'&&($request['enable_thinking']??null)===false&&($request['response_format']['type']??'')==='json_object'
-                    &&str_ends_with($GLOBALS['qwen_test_url'],'/chat/completions')
+                $valid=($request['model']??'')==='qwen4-max-preview'&&($request['enable_thinking']??null)===false&&($request['response_format']['type']??'')==='json_object'
+                    &&$GLOBALS['qwen_test_url']==='https://token-plan.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1/chat/completions'
                     &&($body['title']??'')!==''&&($body['disclaimer']??'')!==''&&($body['guidance']??'')!==''
                     &&($result['tokens']??0)===100
                     &&str_contains($request['messages'][1]['content']??'', 'Example visitor detail')
@@ -66,6 +66,13 @@ namespace {
             }
         }
     }
+    $fallback=new \ReflectionMethod(\Divigamana\Services\QwenProvider::class,'fallbackBaseUrl');
+    $provider=new \Divigamana\Services\QwenProvider();
+    $tokenFallback=$fallback->invoke($provider,'https://token-plan.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1',[]);
+    $workspaceFallback=$fallback->invoke($provider,'https://ws-example.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1',[]);
+    $valid=$tokenFallback===''&&$workspaceFallback==='https://dashscope-intl.aliyuncs.com/compatible-mode/v1';
+    echo ($valid?'PASS':'FAIL')."  Token Plan never automatically falls back to the pay-as-you-go endpoint\n";
+    $valid?$passed++:$failed++;
     // Invalid provider data must be rejected before it can be shown to visitors.
     foreach (['name-reading','baby-names','porondam','daily','monthly','yearly'] as $slug) {
         $service=\Divigamana\Services\ServiceCatalog::find($slug);

@@ -70,7 +70,7 @@ return [
 
         'fallback_base_url' => '',
 
-        'model' => 'qwen4-max',
+        'model' => 'qwen4-max-preview',
 
         'timeout_seconds' => 75,
 

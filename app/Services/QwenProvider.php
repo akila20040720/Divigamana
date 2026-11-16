@@ -287,7 +287,10 @@ final class QwenProvider {
         // A connection-level failure on the Singapore workspace host can be
         // retried through Alibaba's regional DashScope domain using the same
         // Singapore API key. Keep workspace-specific as the primary endpoint.
-        if ($fallback===''&&strpos($primary,'.ap-southeast-1.maas.aliyuncs.com')!==false) {
+        $host=strtolower((string)parse_url($primary,PHP_URL_HOST));
+        // Token Plan keys are not valid on the pay-as-you-go DashScope host.
+        // Only use the regional fallback for Singapore workspace endpoints.
+        if ($fallback===''&&$host!=='token-plan.ap-southeast-1.maas.aliyuncs.com'&&str_ends_with($host,'.ap-southeast-1.maas.aliyuncs.com')) {
             $fallback='https://dashscope-intl.aliyuncs.com/compatible-mode/v1';
         }
         $fallback=rtrim($fallback,'/');
