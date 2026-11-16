@@ -64,9 +64,9 @@ return [
 
     'qwen' => [
 
-        'api_key' => 'sk-ws-H.DIHRHRX.5Qy0.MEUCIQCYN39g1--N0eKUz9LhSN6ePmuu7yEX4vX9L5fc0ZtEmAIgLupbHtf2BdFw_ocZc7-x4unUJX0a2VbY2fZeVTZX3G4',
+        'api_key' => 'sk-sp-H.LPILX.YvDk.MEQCIFqYNwvF_nefduF8jmssrvHbNKo0IyqKuw6vUtgo-35WAiAIiMLjU6pVF5SezKGy9WgsAnHiH8rpngVucY-gqgk8Gg',
 
-        'base_url' => 'https://ws-7g2uwrhmspz0kmxb.ap-southeast-1.maas.aliyuncs.com/',
+        'base_url' => 'https://token-plan.ap-southeast-1.maas.aliyuncs.com/',
 
         'fallback_base_url' => '',
 
