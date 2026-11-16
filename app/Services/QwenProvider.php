@@ -77,13 +77,18 @@ final class QwenProvider {
             else break;
         }
         if ($raw===false||$status<200||$status>299) {
-            $providerMessage=$this->providerError($raw);
-            $errorDetail='';
-            if (is_string($raw)) {
-                $errorDetail=' Response: '.substr($raw,0,500);
-                error_log('Divigamana Qwen API error (HTTP '.$status.'): '.$providerMessage.$errorDetail);
+            // Provider response bodies may contain sensitive request data. Record
+            // only the provider's constrained error code, with an actionable
+            // diagnostic for account errors that cannot be fixed by retrying.
+            $providerCode=$this->providerErrorCode($raw);
+            error_log('Divigamana Qwen API error: HTTP '.$status.($providerCode!==''?', code='.$providerCode:''));
+            if ($providerCode==='Arrearage') {
+                throw new \RuntimeException('Qwen account billing is in arrears. Resolve the outstanding Model Studio account balance before retrying.');
             }
-            throw new \RuntimeException('AI request unavailable (HTTP '.$status.')'.($providerMessage?': '.$providerMessage:($error?': '.$error:'')).$errorDetail);
+            if ($providerCode==='AccessDenied.Unpurchased') {
+                throw new \RuntimeException('Qwen model access is not enabled. Activate Model Studio and check access to the configured model in the matching region and workspace.');
+            }
+            throw new \RuntimeException('AI request unavailable (HTTP '.$status.($providerCode!==''?', code '.$providerCode:'').').');
         }
         $decoded=json_decode($raw,true);
         if (!is_array($decoded)) throw new \RuntimeException('AI service returned invalid HTTP JSON: '.json_last_error_msg());
@@ -256,10 +261,10 @@ final class QwenProvider {
         }
         return $sections;
     }
-    private function providerError($raw): string {
+    private function providerErrorCode($raw): string {
         $decoded=is_string($raw)?json_decode($raw,true):null;
-        $message=is_array($decoded)?($decoded['error']['message']??$decoded['message']??''):'';
-        return is_string($message)?preg_replace('/\s+/', ' ', $message):'';
+        $code=is_array($decoded)?($decoded['error']['code']??$decoded['code']??''):'';
+        return is_string($code)&&preg_match('/\A[a-zA-Z0-9_.-]{1,100}\z/',$code)?$code:'';
     }
     private function validBaseUrl(string $base): bool {
         if (strpos($base,'{')!==false||strpos($base,'}')!==false) return false;

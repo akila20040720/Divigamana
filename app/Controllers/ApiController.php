@@ -655,33 +655,34 @@ final class ApiController {
                 $mspaceCaasFree=$paymentProvider==='mspace'
                     && !empty($accountRecord['mspace_subscriber_id'])
                     && !empty($accountRecord['mspace_subscription_active']);
-                if ($service['paid']&&!$mspaceCaasFree
-                    && (!preg_match('/^divigamana-[A-Za-z0-9._-]{1,100}$/',$chargeReference)||$chargedService!==$service['slug'])) {
-                    Http::json(['ok'=>false,'error'=>'A successful mobile carrier charge is required before this paid reading can start.'],402);
+                $existing=$pdo->prepare("SELECT q.id,q.service_id,q.status,r.result_json,p.status payment_status,p.amount payment_amount FROM horoscope_requests q LEFT JOIN horoscope_results r ON r.request_id=q.id LEFT JOIN payment_transactions p ON p.request_id=q.id AND p.provider=? WHERE q.user_id=? AND q.idempotency_key=? LIMIT 1");
+                $existing->execute([$paymentProvider,$user['id'],$idempotency]);
+                $existingRow=$existing->fetch();
+                if ($existingRow&&(int)$existingRow['service_id']!==(int)$service['id']) Http::json(['ok'=>false,'error'=>'This request identifier is already in use for another service.'],409);
+                if ($existingRow&&$service['paid']&&!$mspaceCaasFree
+                    && ($existingRow['payment_status']!=='paid'||number_format((float)$existingRow['payment_amount'],2,'.','')!==$service['price_lkr'])) {
+                    $message=$existingRow['payment_status']==='authorized'?'The carrier charge is awaiting reconciliation. Do not submit another payment.':'The previous carrier charge was not completed.';
+                    Http::json(['ok'=>false,'error'=>$message],$existingRow['payment_status']==='authorized'?409:402);
                 }
-                $chargingAvailable=$paymentProvider==='mspace'
-                    ? (new MspaceClient())->chargingEnabled()
-                    : (new IdeamartClient())->chargingEnabled();
-                if ($service['paid']&&!$mspaceCaasFree&&!$chargingAvailable) Http::json(['ok'=>false,'error'=>'Carrier billing is temporarily unavailable.'],503);
+                if ($existingRow&&!empty($existingRow['result_json'])) Http::json(['ok'=>true,'result'=>json_decode($existingRow['result_json'],true),'cached'=>true]);
                 $paidChargeId=0;
-                if ($service['paid']&&!$mspaceCaasFree) {
+                if (!$existingRow&&$service['paid']&&!$mspaceCaasFree) {
+                    if (!preg_match('/^divigamana-[A-Za-z0-9._-]{1,100}$/',$chargeReference)||$chargedService!==$service['slug']) {
+                        Http::json(['ok'=>false,'error'=>'A successful mobile carrier charge is required before this paid reading can start.'],402);
+                    }
+                    $chargingAvailable=$paymentProvider==='mspace'
+                        ? (new MspaceClient())->chargingEnabled()
+                        : (new IdeamartClient())->chargingEnabled();
+                    if (!$chargingAvailable) Http::json(['ok'=>false,'error'=>'Carrier billing is temporarily unavailable.'],503);
                     $paidCharge=$pdo->prepare("SELECT id FROM payment_transactions WHERE user_id=? AND provider=? AND external_reference=? AND amount=? AND status='paid' AND (request_id IS NULL OR request_id=(SELECT id FROM horoscope_requests WHERE user_id=? AND idempotency_key=? LIMIT 1)) LIMIT 1");
                     $paidCharge->execute([$user['id'],$paymentProvider,$chargeReference,$service['price_lkr'],$user['id'],$idempotency]);
                     $paidChargeId=(int)$paidCharge->fetchColumn();
                     if ($paidChargeId===0) Http::json(['ok'=>false,'error'=>'The mobile carrier charge was not confirmed. Please try the payment again before starting this reading.'],402);
                 }
-                $existing=$pdo->prepare("SELECT q.id,q.status,r.result_json,p.status payment_status FROM horoscope_requests q LEFT JOIN horoscope_results r ON r.request_id=q.id LEFT JOIN payment_transactions p ON p.request_id=q.id AND p.provider=? WHERE q.user_id=? AND q.idempotency_key=? LIMIT 1");
-                $existing->execute([$paymentProvider,$user['id'],$idempotency]);
-                $existingRow=$existing->fetch();
-                if ($existingRow&&!empty($existingRow['result_json'])) Http::json(['ok'=>true,'result'=>json_decode($existingRow['result_json'],true),'cached'=>true]);
                 $context=self::readingContext($pdo,(int)$user['id'],(int)$service['id']);
                 $externalTrxId=null;
                 if ($existingRow) {
                     $requestId=(int)$existingRow['id'];
-                    if ($service['paid']&&!$mspaceCaasFree&&$existingRow['payment_status']!=='paid') {
-                        $message=$existingRow['payment_status']==='authorized'?'The carrier charge is awaiting reconciliation. Do not submit another payment.':'The previous carrier charge was not completed.';
-                        Http::json(['ok'=>false,'error'=>$message],$existingRow['payment_status']==='authorized'?409:402);
-                    }
                     $pdo->prepare("UPDATE horoscope_requests SET status='processing' WHERE id=?")->execute([$requestId]);
                 } else {
                     $pdo->beginTransaction();
