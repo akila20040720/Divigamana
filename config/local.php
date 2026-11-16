@@ -1,4 +1,3 @@
-
 <?php
 /**
  * Divigamana - Production Configuration
@@ -71,7 +70,7 @@ return [
 
         'fallback_base_url' => '',
 
-        'model' => 'qwen-plus',
+        'model' => 'qwen4-max',
 
         'timeout_seconds' => 75,
 

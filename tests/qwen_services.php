@@ -15,7 +15,7 @@ namespace Divigamana\Services {
 }
 namespace {
     if (PHP_SAPI!=='cli') { http_response_code(404); exit; }
-    define('APP_CONFIG',['qwen'=>['api_key'=>'test-key','base_url'=>'https://dashscope-intl.aliyuncs.com/compatible-mode/v1','model'=>'qwen-plus','timeout_seconds'=>45,'max_output_tokens'=>2200,'temperature'=>0.65,'mock_mode'=>false]]);
+    define('APP_CONFIG',['qwen'=>['api_key'=>'test-key','base_url'=>'https://dashscope-intl.aliyuncs.com/compatible-mode/v1','model'=>'qwen4-max','timeout_seconds'=>45,'max_output_tokens'=>2200,'temperature'=>0.65,'mock_mode'=>false]]);
     require dirname(__DIR__).'/app/Services/ServiceCatalog.php';
     require dirname(__DIR__).'/app/Services/QwenProvider.php';
     $common=['title'=>'Reading','disclaimer'=>'For reflection','guidance'=>'Consider a small step.'];
@@ -45,7 +45,7 @@ namespace {
                 $result=(new \Divigamana\Services\QwenProvider())->generate($service,$answers,$locale,['reading_reference'=>'test-reference']);
                 $request=$GLOBALS['qwen_test_request']??[];
                 $body=$result['result']??[];
-                $valid=($request['model']??'')==='qwen-plus'&&($request['response_format']['type']??'')==='json_object'
+                $valid=($request['model']??'')==='qwen4-max'&&($request['enable_thinking']??null)===false&&($request['response_format']['type']??'')==='json_object'
                     &&str_ends_with($GLOBALS['qwen_test_url'],'/chat/completions')
                     &&($body['title']??'')!==''&&($body['disclaimer']??'')!==''&&($body['guidance']??'')!==''
                     &&($result['tokens']??0)===100

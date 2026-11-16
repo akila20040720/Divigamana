@@ -49,6 +49,9 @@ final class QwenProvider {
         // larger structured readings and preventing an accidental huge cap.
         $maxOutputTokens=max(1200,min(8192,(int)($q['max_output_tokens']??2200)));
         $body=['model'=>$q['model'],'messages'=>[['role'=>'system','content'=>$system],['role'=>'user','content'=>$prompt]],'temperature'=>min(1.0,max(0.2,(float)($q['temperature']??0.65))),'top_p'=>0.8,'max_tokens'=>$maxOutputTokens,'response_format'=>['type'=>'json_object']];
+        // Qwen4 enables reasoning by default; disable it for these short JSON
+        // readings so the output budget and timeout are available for the answer.
+        if (str_starts_with(strtolower((string)$q['model']),'qwen4-max')) $body['enable_thinking']=false;
         if (json_encode($body)===false) throw new \RuntimeException('Could not encode the Qwen request JSON: '.json_last_error_msg());
         $base=rtrim((string)$q['base_url'],'/');
         if (substr($base,-19)!=='/compatible-mode/v1') $base.='/compatible-mode/v1';

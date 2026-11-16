@@ -53,7 +53,7 @@ return [
         // The workspace endpoint is the authoritative endpoint for this key.
         // Do not spend the remaining PHP execution time on a second host.
         'fallback_base_url' => getenv('QWEN_FALLBACK_BASE_URL') ?: '',
-        'model' => getenv('QWEN_MODEL') ?: 'qwen-plus',
+        'model' => getenv('QWEN_MODEL') ?: 'qwen4-max',
         'timeout_seconds' => 75,
         'max_output_tokens' => 4000,
         'temperature' => 0.65,

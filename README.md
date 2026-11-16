@@ -80,7 +80,7 @@ format is `tel:947XXXXXXXX` for the initial MSISDN, with no plus sign or spaces.
 Set `qwen.mock_mode` to `false`, then add the Alibaba Cloud Model Studio **production inference** key, authorised regional OpenAI-compatible base URL, and model ID. The current recommended Singapore endpoint is workspace-specific:
 
 ```php
-'qwen' => ['api_key'=>'YOUR_SERVER_ONLY_KEY','base_url'=>'https://{WORKSPACE_ID}.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1','model'=>'qwen-plus','timeout_seconds'=>45,'max_output_tokens'=>1600,'temperature'=>0.85,'mock_mode'=>false]
+'qwen' => ['api_key'=>'YOUR_SERVER_ONLY_KEY','base_url'=>'https://{WORKSPACE_ID}.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1','model'=>'qwen4-max','timeout_seconds'=>45,'max_output_tokens'=>1600,'temperature'=>0.85,'mock_mode'=>false]
 ```
 
 Never place this key in JavaScript, Git, public files, browser responses, or error logs. The application posts to `/chat/completions` from PHP cURL, records model/tokens/duration, and rejects malformed structured output. Use the endpoint and API key from the same Model Studio region/workspace.
