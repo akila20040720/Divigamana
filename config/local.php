@@ -94,9 +94,9 @@ return [
 
     'ideamart' => [
 
-        'application_id' => 'APP_068524',
+        'application_id' => 'APP_068426',
 
-        'password' => '5f5e14571230f6b8c701e57076e7c4c7',
+        'password' => '89f34d8e549853367afe7684c300d4f5',
 
         'otp_request_url' =>
             'https://api.ideamart.io/subscription/otp/request',
