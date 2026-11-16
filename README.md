@@ -85,6 +85,8 @@ Set `qwen.mock_mode` to `false`, then add the Alibaba Cloud Model Studio **produ
 
 Never place this key in JavaScript, Git, public files, browser responses, or error logs. The application posts to `/chat/completions` from PHP cURL, records model/tokens/duration, and rejects malformed structured output. Use the endpoint and API key from the same Model Studio region/workspace.
 
+Alibaba Cloud's [Token Plan terms](https://www.alibabacloud.com/help/en/model-studio/token-plan-personal-overview) restrict the plan to interactive use in coding and agent tools and prohibit custom application backends. Use a standard Model Studio pay-as-you-go key and endpoint for this site. The `qwen4-max-preview` model is available only through Token Plan and cannot be used for this backend; select an available pay-as-you-go model instead.
+
 Run `php scripts/test-qwen.php en-US` on the application host to check the configured model with a live, billable inference request. `AccessDenied.Unpurchased` requires Model Studio activation and access to the configured model in that workspace and region; `Arrearage` requires the account billing issue to be resolved. Check the server PHP error log for these codes. An HTTP 422 from this application's generation endpoint instead indicates request validation failed; inspect its JSON `error` for the specific field.
 
 Run `php tests/qwen_services.php` to check all reading formats and locales with a simulated provider, and `php tests/paid_retry.php` to check paid retry authorization using an in-memory SQLite database. Neither test calls a live provider or charges a subscriber.

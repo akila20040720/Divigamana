@@ -407,7 +407,7 @@ final class ApiController {
             $userId=(int)$find->fetchColumn();
             // Subscription callbacks may contain the plain MSISDN shown in IdeaMart's
             // sample payload, while OTP verification stores a masked subscriber ID.
-            if ($userId===0&&str_starts_with($subscriberId,'tel:')) {
+            if ($userId===0&&strpos($subscriberId,'tel:')===0) {
                 $callbackMobile=self::mobile(substr($subscriberId,4));
                 if ($callbackMobile!==null) {
                     $find=$pdo->prepare('SELECT id FROM users WHERE mobile_e164=? AND phone_verified_real=1 LIMIT 1');
@@ -448,7 +448,7 @@ final class ApiController {
             $find=$pdo->prepare("SELECT p.id,p.amount,p.currency,u.ideamart_subscriber_id,u.mobile_e164 FROM payment_transactions p JOIN users u ON u.id=p.user_id WHERE p.provider='ideamart' AND p.external_reference=? LIMIT 1");
             $find->execute([$external]);
             $transaction=$find->fetch(\PDO::FETCH_ASSOC);
-            $callbackMobile=str_starts_with($subscriberId,'tel:')?self::mobile(substr($subscriberId,4)):null;
+            $callbackMobile=strpos($subscriberId,'tel:')===0?self::mobile(substr($subscriberId,4)):null;
             if (!$transaction
                 ||(!hash_equals((string)$transaction['ideamart_subscriber_id'],$subscriberId)&&($callbackMobile===null||!hash_equals((string)$transaction['mobile_e164'],$callbackMobile)))
                 ||self::normalizedMoney((string)$transaction['amount'])!==$amount
