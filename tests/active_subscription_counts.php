@@ -28,10 +28,10 @@ function expectActiveCount(bool $condition,string $message): void {
 $metrics=new DashboardMetrics($db);
 $report=$metrics->report(); $records=$report['subscriptionRecords'];
 expectActiveCount((int)$records['active']===4 && (int)$records['simulated_active']===4 && (int)$records['real_active']===0,'visible subscription records include four active simulated rows');
-expectActiveCount((int)$report['summary']['active']===4,'any active row counts the user even when a newer real row is inactive');
+expectActiveCount((int)$report['summary']['active']===6,'active user count comes from users.account_status');
 $db->exec("UPDATE user_subscriptions SET status='active' WHERE id=7");
 $report=$metrics->report(); $records=$report['subscriptionRecords'];
-expectActiveCount((int)$records['active']===5 && (int)$records['real_active']===1 && (int)$records['simulated_active']===4 && (int)$report['summary']['active']===4,'additional active row for the same user increases record count without double-counting the user');
+expectActiveCount((int)$records['active']===5 && (int)$records['real_active']===1 && (int)$records['simulated_active']===4 && (int)$report['summary']['active']===6,'subscription records do not change the account-status active count');
 $db->exec("UPDATE users SET account_status='blocked' WHERE id=3");
 $report=$metrics->report();
-expectActiveCount((int)$report['summary']['active']===3 && (int)$report['subscriptionRecords']['active']===5,'blocked account is excluded from active users but its stored rows remain visible');
+expectActiveCount((int)$report['summary']['active']===5 && (int)$report['subscriptionRecords']['active']===5,'blocked account is excluded from active users but its stored rows remain visible');

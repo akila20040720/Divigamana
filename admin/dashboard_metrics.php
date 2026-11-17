@@ -8,7 +8,7 @@ $platformNames=['mspace'=>'Mobitel (mSpace)','ideamart'=>'IdeaMart'];
 ?>
 <section class="reference-stats" aria-label="Overview">
   <article><strong><?=number($summary['total'])?></strong><b>Total users</b><span>Everyone who entered a number</span></article>
-  <article><strong><?=number($summary['active'])?></strong><b>Active users</b><span>Users with at least one active subscription row, including historical and simulated records. Blocked users are counted separately.</span><span>Stored active subscription rows: <?=number($overview['subscriptionRecords']['active'])?> (<?=number($overview['subscriptionRecords']['real_active'])?> real · <?=number($overview['subscriptionRecords']['simulated_active'])?> simulated). A user may have more than one row.</span></article>
+  <article><strong><?=number($summary['active'])?></strong><b>Active users</b><span>Users whose account status is active in the users table.</span></article>
   <article><strong><?=number($summary['inactive'])?></strong><b>Inactive users</b><span><?=number($summary['unsubscribed'])?> other inactive · <?=number($summary['pending'])?> PIN pending without a subscription</span></article>
   <article><strong><?=number($summary['blocked'])?></strong><b>Blocked</b><span>Blocked by admin</span></article>
 </section>

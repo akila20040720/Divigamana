@@ -8,10 +8,9 @@ use Divigamana\Support\SchemaCapabilities;
 /** Live, read-only reporting over the application's existing records. */
 final class AdminDashboard {
     private const PROVIDER = "CASE WHEN SUBSTR(u.mobile_e164,1,4) IN ('+947') THEN CASE SUBSTR(u.mobile_e164,5,1) WHEN '4' THEN 'dialog' WHEN '7' THEN 'dialog' WHEN '6' THEN 'dialog' WHEN '0' THEN 'mobitel' WHEN '1' THEN 'mobitel' WHEN '5' THEN 'airtel' WHEN '2' THEN 'hutch' WHEN '8' THEN 'hutch' ELSE 'other' END ELSE 'other' END";
-    // A user is active while any stored subscription is marked active,
-    // including simulated records and rows from different providers.
-    public const ACTIVE = "EXISTS (SELECT 1 FROM user_subscriptions s WHERE s.user_id=u.id AND s.status='active')";
-    public const STATE = "CASE WHEN u.account_status='blocked' THEN 'blocked' WHEN ".self::ACTIVE." THEN 'active' WHEN EXISTS (SELECT 1 FROM user_subscriptions existing_sub WHERE existing_sub.user_id=u.id) THEN 'inactive' WHEN u.phone_verified_real=0 THEN 'number_only' ELSE 'inactive' END";
+    // Dashboard account state is defined by the users table.
+    public const ACTIVE = "u.account_status='active'";
+    public const STATE = "CASE WHEN u.account_status='blocked' THEN 'blocked' ELSE 'active' END";
     private PDO $db;
     public function __construct(PDO $db) { $this->db=$db; }
     private function rows(string $sql, array $params=[]): array {

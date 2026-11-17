@@ -5,7 +5,7 @@ namespace Divigamana\Services;
 use PDO;
 use Divigamana\Support\SchemaCapabilities;
 
-/** Aggregates the persisted subscriber and real charge records for the admin overview. */
+/** Aggregates persisted user and real charge records for the admin overview. */
 final class DashboardMetrics {
     private const PROVIDER = "CASE WHEN SUBSTR(u.mobile_e164,1,4)='+947' THEN CASE SUBSTR(u.mobile_e164,5,1) WHEN '4' THEN 'dialog' WHEN '7' THEN 'dialog' WHEN '6' THEN 'dialog' WHEN '0' THEN 'mobitel' WHEN '1' THEN 'mobitel' WHEN '5' THEN 'airtel' WHEN '2' THEN 'hutch' WHEN '8' THEN 'hutch' ELSE 'other' END ELSE 'other' END";
     private PDO $db;
@@ -14,22 +14,20 @@ final class DashboardMetrics {
         $statement=$this->db->prepare($sql); $statement->execute($params); return $statement->fetchAll(PDO::FETCH_ASSOC);
     }
     public function report(): array {
-        $now=date('Y-m-d H:i:s'); $provider=self::PROVIDER; $state=AdminDashboard::STATE;
-        // Aggregate in the database; state matches the directory, including blocked precedence.
-        $groups=$this->rows("SELECT provider, state, phone_verified_real, COUNT(*) total FROM (SELECT $provider provider, $state state, u.phone_verified_real FROM users u) subscriber_states GROUP BY provider,state,phone_verified_real");
+        $now=date('Y-m-d H:i:s'); $provider=self::PROVIDER;
+        // User status and operator are sourced directly from the users table.
+        $groups=$this->rows("SELECT provider, account_status, phone_verified_real, COUNT(*) total FROM (SELECT $provider provider, u.account_status, u.phone_verified_real FROM users u) user_states GROUP BY provider,account_status,phone_verified_real");
         $summary=['total'=>0,'active'=>0,'inactive'=>0,'unsubscribed'=>0,'pending'=>0,'blocked'=>0];
         $funnel=[]; $platform=[]; $pin=['total'=>0,'entered'=>0,'pending'=>0];
         foreach ($groups as $group) {
-            $key=$group['provider']; $count=(int)$group['total']; $state=$group['state'];
+            $key=$group['provider']; $count=(int)$group['total']; $state=$group['account_status'];
             if (!isset($funnel[$key])) $funnel[$key]=['total'=>0,'active'=>0,'inactive'=>0,'blocked'=>0,'pin'=>0,'charges'=>0];
             $verified=(int)$group['phone_verified_real']===1;
             $summary['total']+=$count;
-            $summary[$state==='number_only'?'pending':($state==='inactive'?'unsubscribed':$state)]+=$count;
-            if ($state==='inactive' || $state==='number_only') $summary['inactive']+=$count;
+            $summary[$state==='active'?'active':'blocked']+=$count;
             $pin['total']+=$count; $pin[$verified?'entered':'pending']+=$count;
             $funnel[$key]['total']+=$count;
             if ($state==='active') $funnel[$key]['active']+=$count;
-            elseif ($state!=='blocked') $funnel[$key]['inactive']+=$count;
             else $funnel[$key]['blocked']+=$count;
             if ($verified) $funnel[$key]['pin']+=$count;
         }

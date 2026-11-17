@@ -23,7 +23,7 @@ $reporter=new AdminDashboard($db);
 $filters=['from'=>'','to'=>'','provider'=>'','verification'=>'','search'=>''];
 $r=$reporter->report($filters);
 function expect(bool $condition,string $label): void { if (!$condition) { fwrite(STDERR,"FAIL $label\n"); exit(1); } echo "PASS $label\n"; }
-expect((int)$r['summary']['total']===3 && (int)$r['summary']['active']===2 && (int)$r['summary']['inactive']===0 && (int)$r['summary']['blocked']===1,'summary counts any active subscription and excludes blocked accounts');
+expect((int)$r['summary']['total']===3 && (int)$r['summary']['active']===2 && (int)$r['summary']['inactive']===0 && (int)$r['summary']['blocked']===1,'summary counts users.account_status and excludes blocked accounts');
 $directory=['from'=>'2026-01-01','to'=>'2026-01-01','provider'=>'','verification'=>'','search'=>'','status'=>'active','day'=>''];
 $allDates=$reporter->report(AdminDashboard::directoryFilters($directory));
 expect($allDates['count']===2 && (int)$allDates['summary']['active']===2,'active directory defaults to all join dates and matches overview');
