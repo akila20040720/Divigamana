@@ -33,7 +33,7 @@ try {
     };
     $add('users',$users,'ideamart_subscriber_id','VARCHAR(120) NULL');
     $add('users',$users,'mspace_subscriber_id','VARCHAR(120) NULL');
-    $add('users',$users,'account_status',"ENUM('active','blocked') NOT NULL DEFAULT 'active'");
+    $add('users',$users,'account_status',"ENUM('active','inactive','blocked') NOT NULL DEFAULT 'active'");
     $add('users',$users,'blocked_at','DATETIME NULL');
     $add('users',$users,'first_login_at','DATETIME NULL');
     $add('users',$users,'last_login_at','DATETIME NULL');

@@ -80,6 +80,29 @@ final class ApiController {
         if (in_array($frequency,['yearly','year','annual'],true)) return 'DATE_ADD(NOW(),INTERVAL 1 YEAR)';
         return 'DATE_ADD(NOW(),INTERVAL 1 DAY)';
     }
+    private static function syncUserAccountStatus($pdo,int $userId): void {
+        $sql="UPDATE users u
+            SET u.account_status=CASE
+                WHEN u.account_status='blocked' THEN 'blocked'
+                WHEN EXISTS (
+                    SELECT 1
+                    FROM user_subscriptions s
+                    WHERE s.user_id=u.id
+                      AND s.is_simulated=0
+                      AND s.status='active'
+                      AND s.id=(
+                          SELECT MAX(latest.id)
+                          FROM user_subscriptions latest
+                          WHERE latest.user_id=s.user_id
+                            AND latest.provider=s.provider
+                            AND latest.is_simulated=0
+                      )
+                ) THEN 'active'
+                ELSE 'inactive'
+            END
+            WHERE u.id=?";
+        $pdo->prepare($sql)->execute([$userId]);
+    }
     private static function saveProviderSubscription($pdo,int $userId,string $provider,string $providerStatus,string $frequency='',?string $notifiedAt=null): void {
         $status=self::subscriptionState($providerStatus,$provider);
         // Providers do not send a notification ID. Update only the latest row when
@@ -92,10 +115,12 @@ final class ApiController {
             $effectiveFrequency=$frequency!==''?$frequency:(string)($row['frequency']??'');
             $endsAt=$status==='active'?self::subscriptionEndSql($effectiveFrequency):'NOW()';
             $pdo->prepare("UPDATE user_subscriptions SET status=?,is_simulated=0,frequency=?,notified_at=COALESCE(?,notified_at,NOW()),starts_at=IF(?='active',NOW(),starts_at),ends_at=$endsAt WHERE id=?")->execute([$status,$effectiveFrequency,$notifiedAt,$status,$row['id']]);
+            self::syncUserAccountStatus($pdo,$userId);
             return;
         }
         $endsAt=$status==='active'?self::subscriptionEndSql($frequency):'NOW()';
         $pdo->prepare("INSERT INTO user_subscriptions (user_id,status,is_simulated,provider,provider_status,frequency,accepted_at,starts_at,ends_at,notified_at) VALUES (?,?,0,?,?,?,NOW(),NOW(),$endsAt,COALESCE(?,NOW()))")->execute([$userId,$status,$provider,$normalizedProviderStatus,$frequency,$notifiedAt]);
+        self::syncUserAccountStatus($pdo,$userId);
     }
     private static function saveIdeamartSubscription($pdo,int $userId,string $providerStatus,string $frequency='',?string $notifiedAt=null): void {
         self::saveProviderSubscription($pdo,$userId,'ideamart',$providerStatus,$frequency,$notifiedAt);

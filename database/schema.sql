@@ -6,7 +6,7 @@ CREATE TABLE users (
     otp_verified_demo TINYINT(1) NOT NULL DEFAULT 0,
     phone_verified_real TINYINT(1) NOT NULL DEFAULT 0,
     role ENUM('user','admin') NOT NULL DEFAULT 'user',
-    account_status ENUM('active','blocked') NOT NULL DEFAULT 'active',
+    account_status ENUM('active','inactive','blocked') NOT NULL DEFAULT 'active',
     blocked_at DATETIME NULL,
     first_login_at DATETIME NULL,
     last_login_at DATETIME NULL,
