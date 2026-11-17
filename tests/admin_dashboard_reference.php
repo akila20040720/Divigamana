@@ -11,7 +11,7 @@ use Divigamana\Services\DashboardMetrics;
 
 $db=new PDO('sqlite::memory:',null,null,[PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION]);
 $db->exec('CREATE TABLE users (id INTEGER PRIMARY KEY, mobile_e164 TEXT, account_status TEXT, phone_verified_real INTEGER, ideamart_subscriber_id TEXT, mspace_subscriber_id TEXT, created_at TEXT, last_login_at TEXT)');
-$db->exec('CREATE TABLE user_subscriptions (id INTEGER PRIMARY KEY, user_id INTEGER, provider TEXT, status TEXT, provider_status TEXT, starts_at TEXT, ends_at TEXT, accepted_at TEXT)');
+$db->exec('CREATE TABLE user_subscriptions (id INTEGER PRIMARY KEY, user_id INTEGER, provider TEXT, status TEXT, provider_status TEXT, starts_at TEXT, ends_at TEXT, accepted_at TEXT, is_simulated INTEGER NOT NULL DEFAULT 0)');
 $db->exec('CREATE TABLE audit_events (id INTEGER PRIMARY KEY, user_id INTEGER, event_type TEXT, metadata_json TEXT, created_at TEXT)');
 $db->exec('CREATE TABLE payment_transactions (id INTEGER PRIMARY KEY, user_id INTEGER, amount DECIMAL, currency TEXT, status TEXT, is_simulated INTEGER, created_at TEXT, provider TEXT)');
 $before=date('Y-m-d H:i:s',time()-3600);
@@ -40,7 +40,7 @@ foreach ([
     [3,2,'login_success',null,'2026-03-11 00:00:00'],
     [4,1,'other_event',null,'2026-03-10 12:00:00'],
 ] as $row) $event->execute($row);
-$subscription=$db->prepare('INSERT INTO user_subscriptions VALUES (?,?,?,?,?,?,?,?)');
+$subscription=$db->prepare('INSERT INTO user_subscriptions (id,user_id,provider,status,provider_status,starts_at,ends_at,accepted_at) VALUES (?,?,?,?,?,?,?,?)');
 foreach ([
     [1,1,'ideamart','active','REGISTERED',$before,$after,$before],
     [2,3,'ideamart','active','REGISTERED',$before,$after,$before],
@@ -75,10 +75,10 @@ $daily=$directory->report(array_merge($filters,['day'=>'2026-03-10']));
 expectReference($daily['dailyNew']===2 && $daily['dailyLogins']===2,'selected day counts new users and login events within its date boundaries');
 $states=[];
 foreach ($report['users'] as $row) $states[$row['mobile_e164']]=$row['display_status'];
-expectReference($states['+94770000001']==='active' && $states['+94770000002']==='number_only' && $states['+94770000003']==='inactive' && $states['+94750000004']==='inactive' && $states['+94710000005']==='active' && $states['+94770000006']==='blocked' && $states['+94720000007']==='active' && $states['+94710000008']==='number_only','directory uses latest subscription, expiry, mSpace provider status and blocked precedence');
+expectReference($states['+94770000001']==='active' && $states['+94770000002']==='number_only' && $states['+94770000003']==='inactive' && $states['+94750000004']==='active' && $states['+94710000005']==='active' && $states['+94770000006']==='blocked' && $states['+94720000007']==='active' && $states['+94710000008']==='inactive','directory uses recorded subscription status even after the billing period and preserves blocked precedence');
 $s=$overview['summary'];
-expectReference((int)$s['total']===8 && (int)$s['active']===3 && (int)$s['inactive']===4 && (int)$s['unsubscribed']===2 && (int)$s['pending']===2 && (int)$s['blocked']===1,'overview states match directory and form a partition');
-foreach (['active'=>3,'inactive'=>2,'number_only'=>2,'blocked'=>1] as $status=>$expected) {
+expectReference((int)$s['total']===8 && (int)$s['active']===4 && (int)$s['inactive']===3 && (int)$s['unsubscribed']===2 && (int)$s['pending']===1 && (int)$s['blocked']===1,'overview states match directory and form a partition');
+foreach (['active'=>4,'inactive'=>2,'number_only'=>1,'blocked'=>1] as $status=>$expected) {
     $filtered=$directory->report(array_merge($filters,['status'=>$status]));
     expectReference($filtered['count']===$expected && count($filtered['users'])===$expected,"$status filter matches directory state");
 }
@@ -93,7 +93,19 @@ expectReference((int)$today['attempts']===$expectedToday[0] && (int)$today['succ
 $db->exec("UPDATE user_subscriptions SET status='cancelled', provider_status='UNREGISTERED' WHERE id=1");
 $changed=$directory->report($filters); $changedOverview=$metrics->report();
 $changedStates=[]; foreach ($changed['users'] as $row) $changedStates[$row['mobile_e164']]=$row['display_status'];
-expectReference($changedStates['+94770000001']==='inactive' && (int)$changedOverview['summary']['active']===2 && (int)$changedOverview['summary']['unsubscribed']===3,'subscription update immediately changes directory and overview together');
+expectReference($changedStates['+94770000001']==='inactive' && (int)$changedOverview['summary']['active']===3 && (int)$changedOverview['summary']['unsubscribed']===3,'subscription update immediately changes directory and overview together');
+$subscription->execute([10,1,'ideamart','active','REGISTERED',$old,$old,$before]);
+$subscription->execute([11,3,'mspace','active','REGISTERED',$old,$old,$before]);
+$reactivated=$directory->report($filters); $reactivatedOverview=$metrics->report();
+$reactivatedStates=[]; foreach ($reactivated['users'] as $row) $reactivatedStates[$row['mobile_e164']]=$row['display_status'];
+expectReference($reactivatedStates['+94770000001']==='active' && $reactivatedStates['+94770000003']==='active' && (int)$reactivatedOverview['summary']['active']===5, 'newer active rows restore state and a separate active provider remains effective');
+$db->exec("UPDATE user_subscriptions SET status='inactive' WHERE id=10");
+$inactiveFilter=$directory->report(array_merge($filters,['status'=>'inactive']));
+expectReference($inactiveFilter['count']===2 && in_array('+94770000001',array_column($inactiveFilter['users'],'mobile_e164'),true) && (int)$metrics->report()['summary']['active']===4,'same-row inactive update immediately changes filter and overview');
+$db->exec("UPDATE user_subscriptions SET status='active' WHERE id=10");
+$activeFilter=$directory->report(array_merge($filters,['status'=>'active']));
+$activeMobiles=array_column($activeFilter['users'],'mobile_e164');
+expectReference($activeFilter['count']===5 && in_array('+94770000001',$activeMobiles,true) && (int)$metrics->report()['summary']['active']===5,'same-row reactivation immediately changes filter and overview');
 $db->exec('ALTER TABLE users DROP COLUMN first_login_at');
 $db->exec('DROP TABLE audit_events');
 $legacy=$directory->report($filters);
@@ -115,3 +127,20 @@ foreach ([
 $caas=$metrics->report()['caas'];
 expectReference($caas['reasonsAvailable'] && $caas['attempts']===8 && $caas['successful']===3 && $caas['insufficient']===2, 'CAAS totals include real provider records and confirmed balance failures only');
 expectReference((int)$caas['operators']['dialog']['attempts']===4 && (int)$caas['operators']['dialog']['successful']===2 && (int)$caas['operators']['dialog']['insufficient']===1 && (int)$caas['operators']['mobitel']['attempts']===2 && (int)$caas['operators']['hutch']['insufficient']===1 && (int)$caas['operators']['airtel']['insufficient']===0, 'CAAS records group by number prefix and leave other failures unclassified');
+
+// Demo records must never keep a real cancelled/inactive subscription active.
+$newUser=$db->prepare('INSERT INTO users (id,mobile_e164,account_status,phone_verified_real,ideamart_subscriber_id,mspace_subscriber_id,created_at,last_login_at) VALUES (?,?,?,?,?,?,?,?)');
+foreach ([9,10,11] as $id) $newUser->execute([$id,'+9477'.str_pad((string)$id,7,'0',STR_PAD_LEFT),'active',1,'idea-'.$id,null,$before,null]);
+$subWithMode=$db->prepare('INSERT INTO user_subscriptions (id,user_id,provider,status,provider_status,starts_at,ends_at,accepted_at,is_simulated) VALUES (?,?,?,?,?,?,?,?,?)');
+foreach ([
+    [20,9,'simulated','active',null,$old,$old,$old,1],
+    [21,10,'simulated','active',null,$old,$old,$old,1],
+    [22,10,'ideamart','inactive','INITIAL CHARGING PENDING',$old,$old,$old,0],
+    [23,11,'ideamart','active','REGISTERED',$old,$old,$old,0],
+    [24,11,'simulated','cancelled',null,$old,$old,$old,1],
+] as $row) $subWithMode->execute($row);
+$mixed=$directory->report($filters); $mixedRows=[];
+foreach ($mixed['users'] as $row) $mixedRows[$row['id']]=$row;
+expectReference($mixedRows[9]['display_status']==='active' && $mixedRows[10]['display_status']==='inactive' && $mixedRows[11]['display_status']==='active','real subscription status takes precedence over simulated records and simulated-only users retain their status');
+expectReference((int)$mixedRows[10]['directory_sub_id']===22 && $mixedRows[10]['sub_provider_status']==='INITIAL CHARGING PENDING' && (int)$mixedRows[11]['directory_sub_id']===24 && (int)$mixedRows[11]['sub_simulated']===1,'directory shows the latest stored subscription independently of effective state');
+expectReference((int)$mixedRows[7]['payment_id']===10 && $mixedRows[7]['payment_status']==='paid' && (int)$mixedRows[7]['payment_simulated']===0 && $mixedRows[7]['payment_provider']==='simulated','directory shows the latest payment record independently of subscription state');

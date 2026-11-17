@@ -89,7 +89,7 @@ $query=array_merge($filters,['day'=>$day,'verification_from'=>$verificationDates
 <?php if ($error): ?><p class="error" role="alert"><?=h($error)?></p><?php endif ?>
 <?php if ($data && isset($overview)): ?>
 <div data-dashboard-metrics><?php require __DIR__.'/dashboard_metrics.php'; ?></div>
-<section class="panel" id="users"><div class="section-heading"><div><p class="eyebrow">DIRECTORY</p><h2>User management</h2><p class="muted">Current subscription and account state. Phone search covers all dates.</p></div></div>
+<section class="panel" id="users"><div class="section-heading"><div><p class="eyebrow">DIRECTORY</p><h2>User management</h2><p class="muted">The selected date filters first visits; phone search covers all dates. Latest records include simulations and may differ from account state when a user has multiple subscriptions.</p></div></div>
 <form class="user-toolbar" method="get" action="#users">
 <a class="user-pill" href="<?=h(pageLink(array_merge($query,['day'=>(new DateTimeImmutable($day))->modify('-1 day')->format('Y-m-d'),'search'=>'','page'=>1]),'users'))?>">‹ Prev</a>
 <label><span class="sr-only">Join date</span><input type="date" name="day" value="<?=h($day)?>"></label>
@@ -98,6 +98,29 @@ $query=array_merge($filters,['day'=>$day,'verification_from'=>$verificationDates
 <input type="hidden" name="status" value="<?=h($filters['status'])?>"><button>Search</button>
 </form>
 <nav class="user-status-filters" aria-label="Account state"><?php foreach([''=>'All','active'=>'Active','inactive'=>'Inactive (subscription not active)','number_only'=>'Inactive (PIN not entered)','blocked'=>'Blocked'] as $status=>$label): ?><a class="user-pill<?=$filters['status']===$status?' is-selected':''?>" href="<?=h(pageLink(array_merge($query,['status'=>$status,'page'=>1]),'users'))?>"><?=h($label)?></a><?php endforeach ?></nav>
-<div data-user-results><p class="muted user-count"><?=h($day===date('Y-m-d')?'Today':$day)?> <?=number($data['dailyNew'])?> new · <?=$data['dailyLogins']===null?'Login count unavailable':number($data['dailyLogins']).' recorded logins'?> · <?=number($data['count'])?> matching users <small>(login tracking started with this update)</small></p><div class="table-wrap"><table><thead><tr><th>Phone</th><th>Status</th><th>First visit</th><th>First login</th><th>Last login</th><th><span class="sr-only">Action</span></th></tr></thead><tbody><?php foreach($data['users'] as $user): $state=$user['display_status']; $stateLabel=['active'=>'Active','inactive'=>'Inactive (subscription not active)','number_only'=>'Inactive (PIN not entered)','blocked'=>'Blocked'][$state]; ?><tr><td><b><?=h($user['mobile_e164'])?></b></td><td><span class="badge <?=h($state)?>"><?=h($stateLabel)?></span></td><td><?=h(dateValue($user['created_at']))?></td><td><?=h(dateValue($user['first_login_at']))?></td><td><?=h(dateValue($user['last_login_at']))?></td><td><form method="post" action="<?=h('?'.http_build_query($_GET).'#users')?>"><input type="hidden" name="csrf" value="<?=h(Csrf::token())?>"><input type="hidden" name="user_id" value="<?=h($user['id'])?>"><input type="hidden" name="action" value="<?=$state==='blocked'?'unblock':'block'?>"><button class="user-action" type="submit"><?=$state==='blocked'?'Unblock':'Block'?></button></form></td></tr><?php endforeach ?><?php if (!$data['users']): ?><tr><td colspan="6" class="empty">No users match these filters.</td></tr><?php endif ?></tbody></table></div><div class="pagination"><span>Page <?=number($data['page'])?> of <?=number($data['pages'])?></span><div><?php if($data['page']>1): ?><a href="<?=h(pageLink(array_merge($query,['page'=>$data['page']-1]),'users'))?>">← Previous</a><?php endif ?><?php if($data['page']<$data['pages']): ?><a href="<?=h(pageLink(array_merge($query,['page'=>$data['page']+1]),'users'))?>">Next →</a><?php endif ?></div></div></div></section>
-<script src="../public/assets/js/admin-users.js" defer></script>
+<div data-user-results>
+<p class="muted user-count"><?=h($day===date('Y-m-d')?'Today':$day)?> <?=number($data['dailyNew'])?> new · <?=$data['dailyLogins']===null?'Login count unavailable':number($data['dailyLogins']).' recorded logins'?> · <?=number($data['count'])?> matching users <small>(login tracking started with this update)</small></p>
+<div class="table-wrap"><table><thead><tr><th>Phone</th><th>Account state</th><th>Latest subscription record</th><th>Latest payment record</th><th>First visit</th><th>First login</th><th>Last login</th><th><span class="sr-only">Action</span></th></tr></thead><tbody>
+<?php foreach($data['users'] as $user):
+    $state=$user['display_status'];
+    $stateLabel=['active'=>'Active','inactive'=>'Inactive (subscription not active)','number_only'=>'Inactive (PIN not entered)','blocked'=>'Blocked'][$state];
+?>
+<tr>
+<td><b><?=h($user['mobile_e164'])?></b></td>
+<td><span class="badge <?=h($state)?>"><?=h($stateLabel)?></span></td>
+<td><?php if ($user['directory_sub_id']!==null): ?>
+<b><?=h(ucfirst((string)$user['sub_status']))?></b>
+<small><?=h(ucfirst((string)$user['sub_provider']))?> · #<?=h($user['directory_sub_id'])?><?=!empty($user['sub_simulated'])?' · Simulated':''?></small>
+<?php if (!empty($user['sub_provider_status'])): ?><small>Provider: <?=h($user['sub_provider_status'])?></small><?php endif ?>
+<?php else: ?>—<?php endif ?></td>
+<td><?php if ($user['payment_id']!==null): ?>
+<b><?=h(ucfirst(str_replace('_',' ',(string)$user['payment_status'])))?></b>
+<small><?=h($user['payment_currency'])?> <?=h(number_format((float)$user['payment_amount'],2))?> · <?=h(ucfirst((string)$user['payment_provider']))?> · #<?=h($user['payment_id'])?><?=!empty($user['payment_simulated'])?' · Simulated':''?></small>
+<?php else: ?>—<?php endif ?></td>
+<td><?=h(dateValue($user['created_at']))?></td><td><?=h(dateValue($user['first_login_at']))?></td><td><?=h(dateValue($user['last_login_at']))?></td>
+<td><form method="post" action="<?=h('?'.http_build_query($_GET).'#users')?>"><input type="hidden" name="csrf" value="<?=h(Csrf::token())?>"><input type="hidden" name="user_id" value="<?=h($user['id'])?>"><input type="hidden" name="action" value="<?=$state==='blocked'?'unblock':'block'?>"><button class="user-action" type="submit"><?=$state==='blocked'?'Unblock':'Block'?></button></form></td>
+</tr>
+<?php endforeach ?><?php if (!$data['users']): ?><tr><td colspan="8" class="empty">No users match these filters.</td></tr><?php endif ?></tbody></table></div>
+<div class="pagination"><span>Page <?=number($data['page'])?> of <?=number($data['pages'])?></span><div><?php if($data['page']>1): ?><a href="<?=h(pageLink(array_merge($query,['page'=>$data['page']-1]),'users'))?>">← Previous</a><?php endif ?><?php if($data['page']<$data['pages']): ?><a href="<?=h(pageLink(array_merge($query,['page'=>$data['page']+1]),'users'))?>">Next →</a><?php endif ?></div></div></div></section>
+<script src="../public/assets/js/admin-users.js?v=2" defer></script>
 <?php endif ?></main><?php endif ?></body></html>
