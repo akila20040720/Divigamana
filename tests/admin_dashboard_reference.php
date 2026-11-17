@@ -2,6 +2,7 @@
 declare(strict_types=1);
 if (PHP_SAPI !== 'cli') exit(1);
 date_default_timezone_set('Asia/Colombo');
+require dirname(__DIR__).'/app/Support/SchemaCapabilities.php';
 require dirname(__DIR__).'/app/Services/AdminDashboard.php';
 require dirname(__DIR__).'/app/Services/DashboardMetrics.php';
 
@@ -12,7 +13,7 @@ $db=new PDO('sqlite::memory:',null,null,[PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTI
 $db->exec('CREATE TABLE users (id INTEGER PRIMARY KEY, mobile_e164 TEXT, account_status TEXT, phone_verified_real INTEGER, ideamart_subscriber_id TEXT, mspace_subscriber_id TEXT, created_at TEXT, last_login_at TEXT)');
 $db->exec('CREATE TABLE user_subscriptions (id INTEGER PRIMARY KEY, user_id INTEGER, provider TEXT, status TEXT, provider_status TEXT, starts_at TEXT, ends_at TEXT, accepted_at TEXT)');
 $db->exec('CREATE TABLE audit_events (id INTEGER PRIMARY KEY, user_id INTEGER, event_type TEXT, metadata_json TEXT, created_at TEXT)');
-$db->exec('CREATE TABLE payment_transactions (id INTEGER PRIMARY KEY, user_id INTEGER, amount DECIMAL, currency TEXT, status TEXT, is_simulated INTEGER, created_at TEXT)');
+$db->exec('CREATE TABLE payment_transactions (id INTEGER PRIMARY KEY, user_id INTEGER, amount DECIMAL, currency TEXT, status TEXT, is_simulated INTEGER, created_at TEXT, provider TEXT)');
 $before=date('Y-m-d H:i:s',time()-3600);
 $after=date('Y-m-d H:i:s',time()+3600);
 $old=date('Y-m-d H:i:s',time()-172800);
@@ -51,7 +52,7 @@ foreach ([
     [8,7,'ideamart','active','REGISTERED',$before,$after,$before],
     [9,8,'mspace','pending','PENDING',$before,$after,$before],
 ] as $row) $subscription->execute($row);
-$payment=$db->prepare('INSERT INTO payment_transactions VALUES (?,?,?,?,?,?,?)');
+$payment=$db->prepare('INSERT INTO payment_transactions (id,user_id,amount,currency,status,is_simulated,created_at) VALUES (?,?,?,?,?,?,?)');
 foreach ([
     [1,1,20,'LKR','paid',0,$before],
     [2,1,30,'LKR','paid',0,$old],
@@ -59,6 +60,7 @@ foreach ([
     [4,3,20,'LKR','authorized',0,$before],
     [5,1,900,'LKR','simulated_confirmed',1,$before],
 ] as $row) $payment->execute($row);
+$db->exec("UPDATE payment_transactions SET provider=CASE WHEN is_simulated=1 THEN 'simulated' ELSE 'ideamart' END");
 function expectReference(bool $condition,string $label): void {
     if (!$condition) { fwrite(STDERR,"FAIL $label\n"); exit(1); }
     echo "PASS $label\n";
@@ -68,6 +70,7 @@ $directory=new AdminDashboard($db);
 $metrics=new DashboardMetrics($db);
 $report=$directory->report($filters);
 $overview=$metrics->report();
+expectReference(!$overview['caas']['reasonsAvailable'] && $overview['caas']['insufficient']===null && $overview['caas']['attempts']===4, 'CAAS counts remain available before failure-reason migration without inventing a balance count');
 $daily=$directory->report(array_merge($filters,['day'=>'2026-03-10']));
 expectReference($daily['dailyNew']===2 && $daily['dailyLogins']===2,'selected day counts new users and login events within its date boundaries');
 $states=[];
@@ -91,3 +94,24 @@ $db->exec("UPDATE user_subscriptions SET status='cancelled', provider_status='UN
 $changed=$directory->report($filters); $changedOverview=$metrics->report();
 $changedStates=[]; foreach ($changed['users'] as $row) $changedStates[$row['mobile_e164']]=$row['display_status'];
 expectReference($changedStates['+94770000001']==='inactive' && (int)$changedOverview['summary']['active']===2 && (int)$changedOverview['summary']['unsubscribed']===3,'subscription update immediately changes directory and overview together');
+$db->exec('ALTER TABLE users DROP COLUMN first_login_at');
+$db->exec('DROP TABLE audit_events');
+$legacy=$directory->report($filters);
+expectReference($legacy['users'][0]['first_login_at']===null && $legacy['dailyLogins']===null,'directory remains available on databases awaiting login tracking migration');
+$db->exec('CREATE TABLE audit_events (id INTEGER PRIMARY KEY,user_id INTEGER,event_type TEXT,created_at TEXT)');
+$db->prepare("INSERT INTO audit_events (user_id,event_type,created_at) VALUES (1,'login_success',?)")->execute([date('Y-m-d H:i:s')]);
+$legacyWithAudit=$directory->report($filters);
+expectReference($legacyWithAudit['users'][0]['first_login_at']===null && $legacyWithAudit['dailyLogins']===1,'existing login events are counted even when first login column is absent');
+$db->exec('ALTER TABLE payment_transactions ADD COLUMN failure_reason TEXT');
+$db->exec("UPDATE payment_transactions SET failure_reason='insufficient_balance' WHERE id=3");
+$extraPayment=$db->prepare('INSERT INTO payment_transactions (id,user_id,amount,currency,status,is_simulated,created_at,provider,failure_reason) VALUES (?,?,?,?,?,?,?,?,?)');
+foreach ([
+    [6,5,20,'LKR','paid',0,$before,'mspace',null],
+    [7,7,20,'LKR','failed',0,$before,'ideamart','insufficient_balance'],
+    [8,4,20,'LKR','failed',0,$before,'ideamart',null],
+    [9,5,20,'LKR','authorized',0,$before,'mspace',null],
+    [10,7,20,'LKR','paid',0,$before,'simulated',null],
+] as $row) $extraPayment->execute($row);
+$caas=$metrics->report()['caas'];
+expectReference($caas['reasonsAvailable'] && $caas['attempts']===8 && $caas['successful']===3 && $caas['insufficient']===2, 'CAAS totals include real provider records and confirmed balance failures only');
+expectReference((int)$caas['operators']['dialog']['attempts']===4 && (int)$caas['operators']['dialog']['successful']===2 && (int)$caas['operators']['dialog']['insufficient']===1 && (int)$caas['operators']['mobitel']['attempts']===2 && (int)$caas['operators']['hutch']['insufficient']===1 && (int)$caas['operators']['airtel']['insufficient']===0, 'CAAS records group by number prefix and leave other failures unclassified');

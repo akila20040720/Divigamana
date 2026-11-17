@@ -3,6 +3,7 @@ declare(strict_types=1);
 namespace Divigamana\Services;
 
 use PDO;
+use Divigamana\Support\SchemaCapabilities;
 
 /** Aggregates the persisted subscriber and real charge records for the admin overview. */
 final class DashboardMetrics {
@@ -46,6 +47,18 @@ final class DashboardMetrics {
         $since=date('Y-m-d',strtotime('-13 days')).' 00:00:00';
         $dailyCharges=$this->rows("SELECT SUBSTR(created_at,1,10) day, COUNT(*) attempts, SUM(CASE WHEN status='paid' THEN 1 ELSE 0 END) successful, SUM(CASE WHEN status='failed' THEN 1 ELSE 0 END) failed, SUM(CASE WHEN status='paid' AND currency='LKR' THEN amount ELSE 0 END) revenue FROM payment_transactions WHERE is_simulated=0 AND created_at>=? AND created_at<? GROUP BY SUBSTR(created_at,1,10) ORDER BY day DESC",[$since,$tomorrow]);
         $hourly=$this->rows("SELECT SUBSTR(accepted_at,1,13) hour,COUNT(*) total FROM user_subscriptions WHERE accepted_at>=? AND accepted_at<=? GROUP BY SUBSTR(accepted_at,1,13) ORDER BY hour DESC",[date('Y-m-d H:i:s',time()-86400),$now]);
-        return compact('summary','funnel','platform','pin','todayCharges','allCharges','dailyCharges','hourly');
+        // Historical transactions may predate failure-reason tracking. Never
+        // infer insufficient balance from a generic failed payment.
+        $caasReasonsAvailable=SchemaCapabilities::hasColumn($this->db,'payment_transactions','failure_reason');
+        $insufficient=$caasReasonsAvailable ? "SUM(CASE WHEN p.status='failed' AND p.failure_reason='insufficient_balance' THEN 1 ELSE 0 END)" : 'NULL';
+        $caasRows=$this->rows("SELECT $provider mobile_provider, COUNT(*) attempts, SUM(CASE WHEN p.status='paid' THEN 1 ELSE 0 END) successful, $insufficient insufficient FROM payment_transactions p JOIN users u ON u.id=p.user_id WHERE p.is_simulated=0 AND p.provider IN ('ideamart','mspace') GROUP BY $provider");
+        $caas=['operators'=>[], 'attempts'=>0, 'successful'=>0, 'insufficient'=>$caasReasonsAvailable?0:null, 'reasonsAvailable'=>$caasReasonsAvailable];
+        foreach ($caasRows as $row) {
+            $caas['operators'][$row['mobile_provider']]=$row;
+            $caas['attempts']+=(int)$row['attempts'];
+            $caas['successful']+=(int)$row['successful'];
+            if ($caasReasonsAvailable) $caas['insufficient']+=(int)$row['insufficient'];
+        }
+        return compact('summary','funnel','platform','pin','todayCharges','allCharges','dailyCharges','hourly','caas');
     }
 }

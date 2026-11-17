@@ -97,6 +97,8 @@ CREATE TABLE payment_transactions (
     provider ENUM('simulated','ideamart','mspace') NOT NULL DEFAULT 'simulated',
     external_reference VARCHAR(120) NULL,
     provider_reference VARCHAR(120) NULL,
+    provider_status_code VARCHAR(32) NULL,
+    failure_reason VARCHAR(32) NULL,
     description VARCHAR(255) NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE KEY uq_payment_provider_external (provider, external_reference),

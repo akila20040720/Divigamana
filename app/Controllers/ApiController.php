@@ -6,10 +6,12 @@ use Divigamana\Services\IdeamartClient;
 use Divigamana\Services\MspaceClient;
 use Divigamana\Services\RahuKalaya;
 use Divigamana\Services\ServiceCatalog;
+use Divigamana\Services\ChargeOutcome;
 use Divigamana\Support\Database;
 use Divigamana\Support\Csrf;
 use Divigamana\Support\Http;
 use Divigamana\Support\Session;
+use Divigamana\Support\SchemaCapabilities;
 
 final class ApiController {
     public static function csrf(): void {
@@ -303,8 +305,9 @@ final class ApiController {
                 $pdo->prepare('UPDATE users SET otp_verified_demo=0,phone_verified_real=1,ideamart_subscriber_id=COALESCE(?,ideamart_subscriber_id),mspace_subscriber_id=COALESCE(?,mspace_subscriber_id) WHERE id=?')->execute([$subscriberId??null,$mspaceSubscriberId??null,$user['id']]);
                 self::saveProviderSubscription($pdo,(int)$user['id'],$mspaceSubscriberId!==null?'mspace':'ideamart',$subscriptionStatus);
             }
-            $pdo->prepare('UPDATE users SET first_login_at=COALESCE(first_login_at,NOW()),last_login_at=NOW() WHERE id=?')->execute([(int)$user['id']]);
-            $pdo->prepare("INSERT INTO audit_events (user_id,event_type,created_at) VALUES (?,'login_success',NOW())")->execute([(int)$user['id']]);
+            $firstLogin=SchemaCapabilities::hasColumn($pdo,'users','first_login_at');
+            $pdo->prepare($firstLogin ? 'UPDATE users SET first_login_at=COALESCE(first_login_at,NOW()),last_login_at=NOW() WHERE id=?' : 'UPDATE users SET last_login_at=NOW() WHERE id=?')->execute([(int)$user['id']]);
+            if (SchemaCapabilities::hasTable($pdo,'audit_events')) $pdo->prepare("INSERT INTO audit_events (user_id,event_type,created_at) VALUES (?,'login_success',NOW())")->execute([(int)$user['id']]);
             $pdo->commit();
             Session::login($user);
             unset($_SESSION['otp_mobile'],$_SESSION['otp_reference'],$_SESSION['otp_provider'],$_SESSION['otp_code_hash'],$_SESSION['otp_expires_at'],$_SESSION['otp_attempts']);
@@ -456,12 +459,12 @@ final class ApiController {
             }
             $reference=substr(trim((string)($input['internalTrxId']??'')),0,120);
             if (in_array($statusCode,['S1000','E1379'],true)) {
-                $pdo->prepare("UPDATE payment_transactions SET status='paid',provider_reference=COALESCE(NULLIF(?,''),provider_reference) WHERE id=? AND status<>'refunded'")->execute([$reference,$transaction['id']]);
+                ChargeOutcome::update($pdo,"UPDATE payment_transactions SET status='paid',provider_reference=COALESCE(NULLIF(?,''),provider_reference)"," WHERE id=? AND status<>'refunded'",[$reference],[$transaction['id']],'ideamart',$statusCode,false);
             } elseif (IdeamartClient::transientFailure(['statusCode'=>$statusCode])) {
-                $pdo->prepare("UPDATE payment_transactions SET provider_reference=? WHERE id=? AND status='authorized'")->execute(['retryable:'.$statusCode,$transaction['id']]);
+                ChargeOutcome::update($pdo,'UPDATE payment_transactions SET provider_reference=?'," WHERE id=? AND status='authorized'",['retryable:'.$statusCode],[$transaction['id']],'ideamart',$statusCode,true);
             } else {
                 // A delayed failure notification must never overwrite a confirmed debit.
-                $pdo->prepare("UPDATE payment_transactions SET status='failed',provider_reference=COALESCE(NULLIF(?,''),provider_reference) WHERE id=? AND status='authorized'")->execute([$reference,$transaction['id']]);
+                ChargeOutcome::update($pdo,"UPDATE payment_transactions SET status='failed',provider_reference=COALESCE(NULLIF(?,''),provider_reference)"," WHERE id=? AND status='authorized'",[$reference],[$transaction['id']],'ideamart',$statusCode,true);
                 error_log('IdeaMart charging callback reported: statusCode='.$statusCode);
             }
         } catch (\Throwable $error) {
@@ -504,10 +507,10 @@ final class ApiController {
             }
             $reference=substr(trim((string)($input['internalTrxId']??$input['referenceNo']??'')),0,120);
             if ($statusCode==='S1000') {
-                $pdo->prepare("UPDATE payment_transactions SET status='paid',provider_reference=COALESCE(NULLIF(?,''),provider_reference) WHERE id=? AND status<>'refunded'")->execute([$reference,$transaction['id']]);
+                ChargeOutcome::update($pdo,"UPDATE payment_transactions SET status='paid',provider_reference=COALESCE(NULLIF(?,''),provider_reference)"," WHERE id=? AND status<>'refunded'",[$reference],[$transaction['id']],'mspace',$statusCode,false);
             } else {
                 // A delayed failure must never overwrite a confirmed debit.
-                $pdo->prepare("UPDATE payment_transactions SET status='failed',provider_reference=COALESCE(NULLIF(?,''),provider_reference) WHERE id=? AND status='authorized'")->execute([$reference,$transaction['id']]);
+                ChargeOutcome::update($pdo,"UPDATE payment_transactions SET status='failed',provider_reference=COALESCE(NULLIF(?,''),provider_reference)"," WHERE id=? AND status='authorized'",[$reference],[$transaction['id']],'mspace',$statusCode,true);
                 error_log('mSpace charging callback reported: statusCode='.$statusCode);
             }
         } catch (\Throwable $error) {
@@ -546,12 +549,11 @@ final class ApiController {
             $response=(new IdeamartClient())->charge($user['ideamart_subscriber_id'],$external,$amount);
             $success=IdeamartClient::successful($response,['E1379']);
             if (!$success) {
-                $pdo->prepare("UPDATE payment_transactions SET status='failed',provider_reference=? WHERE user_id=? AND provider='ideamart' AND external_reference=? AND status='authorized'")->execute([(string)($response['internalTrxId']??''),$user['id'],$external]);
+                ChargeOutcome::update($pdo,"UPDATE payment_transactions SET status='failed',provider_reference=?"," WHERE user_id=? AND provider='ideamart' AND external_reference=? AND status='authorized'",[(string)($response['internalTrxId']??'')],[$user['id'],$external],'ideamart',(string)($response['statusCode']??''),true);
                 error_log('IdeaMart CAAS debit rejected: '.IdeamartClient::diagnostic($response));
                 Http::json(['ok'=>false,'error'=>'The mobile carrier charge was not completed.'],502);
             }
-            $update=$pdo->prepare("UPDATE payment_transactions SET status='paid',provider_reference=? WHERE user_id=? AND provider='ideamart' AND external_reference=? AND status='authorized'");
-            $update->execute([(string)($response['internalTrxId']??''),$user['id'],$external]);
+            $update=ChargeOutcome::update($pdo,"UPDATE payment_transactions SET status='paid',provider_reference=?"," WHERE user_id=? AND provider='ideamart' AND external_reference=? AND status='authorized'",[(string)($response['internalTrxId']??'')],[$user['id'],$external],'ideamart',(string)($response['statusCode']??''),false);
             if ($update->rowCount()!==1) Http::json(['ok'=>false,'error'=>'The payment record could not be confirmed. Contact support before retrying.'],409);
             $_SESSION['caas_paid_reference']=$external;
             $_SESSION['caas_paid_service']=$service['slug'];
@@ -588,7 +590,7 @@ final class ApiController {
             $response=(new MspaceClient())->generateChargeOtp($subscriber,$external,$amount);
             $reference=MspaceClient::reference($response);
             if (!MspaceClient::successful($response)||$reference==='') {
-                $pdo->prepare("UPDATE payment_transactions SET status='failed' WHERE user_id=? AND provider='mspace' AND external_reference=?")->execute([$user['id'],$external]);
+                ChargeOutcome::update($pdo,"UPDATE payment_transactions SET status='failed'"," WHERE user_id=? AND provider='mspace' AND external_reference=? AND status='authorized'",[],[$user['id'],$external],'mspace',(string)($response['statusCode']??''),true);
                 error_log('mSpace CAAS OTP rejected: '.MspaceClient::diagnostic($response));
                 Http::json(['ok'=>false,'error'=>'mSpace could not send the charging OTP.'],502);
             }
@@ -609,12 +611,21 @@ final class ApiController {
         try {
             $response=(new MspaceClient())->verifyChargeOtp((string)$charge['referenceNo'],$otp,(string)$charge['subscriberId']);
             if (!MspaceClient::successful($response)) {
+                // An OTP error may be retried; record its code without declaring
+                // the underlying charge failed or overwriting a paid callback.
+                try {
+                    $pdo=Database::pdo();
+                    [$outcome,$values]=ChargeOutcome::assignments($pdo,'mspace',(string)($response['statusCode']??''),false);
+                    if ($outcome!=='') $pdo->prepare("UPDATE payment_transactions SET ".substr($outcome,1)." WHERE user_id=? AND provider='mspace' AND external_reference=? AND status='authorized'")->execute(array_merge($values,[$user['id'],(string)$charge['externalTrxId']]));
+                } catch (\Throwable $trackingError) {
+                    error_log('mSpace charge outcome tracking failed: '.$trackingError->getMessage());
+                }
                 error_log('mSpace CAAS OTP verification rejected: '.MspaceClient::diagnostic($response));
                 Http::json(['ok'=>false,'error'=>'The mSpace charging OTP is invalid or expired.'],422);
             }
             $providerReference=substr(trim((string)($response['internalTrxId']??$charge['referenceNo'])),0,120);
-            $update=Database::pdo()->prepare("UPDATE payment_transactions SET status='paid',provider_reference=? WHERE user_id=? AND provider='mspace' AND external_reference=? AND amount=? AND status='authorized'");
-            $update->execute([$providerReference,$user['id'],(string)$charge['externalTrxId'],(string)$charge['amount']]);
+            $pdo=Database::pdo();
+            $update=ChargeOutcome::update($pdo,"UPDATE payment_transactions SET status='paid',provider_reference=?"," WHERE user_id=? AND provider='mspace' AND external_reference=? AND amount=? AND status='authorized'",[$providerReference],[$user['id'],(string)$charge['externalTrxId'],(string)$charge['amount']],'mspace',(string)($response['statusCode']??''),false);
             if ($update->rowCount()!==1) Http::json(['ok'=>false,'error'=>'The payment record could not be confirmed. Contact support before retrying.'],409);
             $_SESSION['caas_paid_reference']=(string)$charge['externalTrxId'];
             $_SESSION['caas_paid_service']=(string)$charge['service'];

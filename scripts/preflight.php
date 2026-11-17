@@ -46,11 +46,24 @@ try {
     $pdo->query('SELECT 1');
     result('PASS','Database connection');
     $database=(string)(APP_CONFIG['db']['name']??'');
-    $required=['users'=>['account_status','last_login_at','ideamart_subscriber_id'],'user_subscriptions'=>['provider','provider_status','frequency','notified_at'],'payment_transactions'=>['provider','external_reference','provider_reference']];
+    // Check the columns used by the dashboard as well as carrier/payment flows.
+    // Missing login history fields do not make the legacy directory unusable,
+    // but must be migrated before first-login and login-count tracking is complete.
+    $required=[
+        'users'=>['id','mobile_e164','account_status','last_login_at','created_at','phone_verified_real','ideamart_subscriber_id','mspace_subscriber_id'],
+        'user_subscriptions'=>['id','user_id','status','provider','provider_status','frequency','notified_at','accepted_at','starts_at','ends_at'],
+        'payment_transactions'=>['user_id','amount','currency','status','is_simulated','created_at','provider','external_reference','provider_reference'],
+    ];
     foreach ($required as $table=>$columns) foreach ($columns as $column) {
         $st=$pdo->prepare('SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=? AND TABLE_NAME=? AND COLUMN_NAME=?');
         $st->execute([$database,$table,$column]);
         result((int)$st->fetchColumn()===1?'PASS':'FAIL',"Database column $table.$column");
+    }
+    foreach (['users'=>['first_login_at'],'audit_events'=>['user_id','event_type','created_at']] as $table=>$columns) foreach ($columns as $column) {
+        $st=$pdo->prepare('SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=? AND TABLE_NAME=? AND COLUMN_NAME=?');
+        $st->execute([$database,$table,$column]);
+        $present=(int)$st->fetchColumn()===1;
+        result($present?'PASS':'WARN',"Login tracking column $table.$column",$present?'':'Run the applicable database migrations');
     }
     $dbPrices=$pdo->query('SELECT slug,price_lkr FROM service_catalog')->fetchAll(\PDO::FETCH_KEY_PAIR);
     foreach (ServiceCatalog::all() as $service) result(isset($dbPrices[$service['slug']])&&number_format((float)$dbPrices[$service['slug']],2,'.','')===$service['price_lkr']?'PASS':'FAIL','Service price '.$service['slug'],$service['price_lkr'].' LKR');

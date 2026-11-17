@@ -10,9 +10,22 @@ try {
         $rows=$db->query("SHOW COLUMNS FROM `$table`")->fetchAll(PDO::FETCH_ASSOC);
         return array_column($rows,'Type','Field');
     };
-    $users=$columns('users'); $subscriptions=$columns('user_subscriptions');
+    $users=$columns('users'); $subscriptions=$columns('user_subscriptions'); $payments=$columns('payment_transactions');
     foreach (['id','mobile_e164','phone_verified_real','created_at'] as $name) if (!isset($users[$name])) throw new RuntimeException("users.$name is missing; migrate the base application schema first.");
     foreach (['id','user_id','status','is_simulated','accepted_at','starts_at','ends_at'] as $name) if (!isset($subscriptions[$name])) throw new RuntimeException("user_subscriptions.$name is missing; migrate the base application schema first.");
+    $tables=$db->query('SHOW TABLES')->fetchAll(PDO::FETCH_COLUMN);
+    if (!in_array('audit_events',$tables,true)) {
+        $db->exec("CREATE TABLE IF NOT EXISTS audit_events (
+            id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+            user_id BIGINT UNSIGNED NULL,
+            event_type VARCHAR(100) NOT NULL,
+            metadata_json JSON NULL,
+            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            INDEX idx_audit_event_created (event_type, created_at),
+            CONSTRAINT fk_audit_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+        echo "Created audit_events table.\n";
+    }
     $add=static function(string $table,array &$existing,string $name,string $definition) use ($db): bool {
         if (isset($existing[$name])) return false;
         $db->exec("ALTER TABLE `$table` ADD COLUMN `$name` $definition");
@@ -28,6 +41,8 @@ try {
     $add('user_subscriptions',$subscriptions,'provider_status','VARCHAR(30) NULL');
     $add('user_subscriptions',$subscriptions,'frequency','VARCHAR(60) NULL');
     $add('user_subscriptions',$subscriptions,'notified_at','VARCHAR(40) NULL');
+    $add('payment_transactions',$payments,'provider_status_code','VARCHAR(32) NULL');
+    $add('payment_transactions',$payments,'failure_reason','VARCHAR(32) NULL');
     if ($providerAdded) {
         $db->exec("UPDATE user_subscriptions s JOIN users u ON u.id=s.user_id SET s.provider='ideamart', s.provider_status=IF(s.status='active','REGISTERED','UNREGISTERED') WHERE s.is_simulated=0 AND u.ideamart_subscriber_id IS NOT NULL AND u.ideamart_subscriber_id<>''");
         echo "Classified existing IdeaMart subscription records where identifiable.\n";

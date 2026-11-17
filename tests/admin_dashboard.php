@@ -1,6 +1,7 @@
 <?php
 declare(strict_types=1);
 if (PHP_SAPI!=='cli') exit(1);
+require dirname(__DIR__).'/app/Support/SchemaCapabilities.php';
 require dirname(__DIR__).'/app/Services/AdminDashboard.php';
 use Divigamana\Services\AdminDashboard;
 $db=new PDO('sqlite::memory:',null,null,[PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION]);

@@ -3,6 +3,7 @@ declare(strict_types=1);
 namespace Divigamana\Services;
 
 use PDO;
+use Divigamana\Support\SchemaCapabilities;
 
 /** Live, read-only reporting over the application's existing records. */
 final class AdminDashboard {
@@ -37,11 +38,12 @@ final class AdminDashboard {
         $verificationClause=$verificationWhere?' WHERE '.implode(' AND ',$verificationWhere):'';
         $verification=$this->rows("SELECT COUNT(*) total, COALESCE(SUM(CASE WHEN u.phone_verified_real=1 AND u.ideamart_subscriber_id IS NOT NULL AND u.ideamart_subscriber_id<>'' THEN 1 ELSE 0 END),0) ideamart, COALESCE(SUM(CASE WHEN u.phone_verified_real=1 AND u.mspace_subscriber_id IS NOT NULL AND u.mspace_subscriber_id<>'' THEN 1 ELSE 0 END),0) mspace FROM users u$verificationClause",$verificationParams)[0];
         $count=(int)$this->rows("SELECT COUNT(*) total FROM users u$clause",$params)[0]['total']; $pages=max(1,(int)ceil($count/25)); $page=max(1,min($page,$pages)); $offset=($page-1)*25;
-        $users=$this->rows("SELECT u.id,u.mobile_e164,u.account_status,u.phone_verified_real,u.ideamart_subscriber_id,u.mspace_subscriber_id,u.created_at,u.first_login_at,u.last_login_at,$provider provider,".self::STATE." AS display_status FROM users u$clause ORDER BY u.created_at DESC,u.id DESC LIMIT 25 OFFSET $offset",array_merge([$now,$now,$now],$params));
+        $firstLogin=SchemaCapabilities::hasColumn($this->db,'users','first_login_at')?'u.first_login_at':'NULL AS first_login_at';
+        $users=$this->rows("SELECT u.id,u.mobile_e164,u.account_status,u.phone_verified_real,u.ideamart_subscriber_id,u.mspace_subscriber_id,u.created_at,$firstLogin,u.last_login_at,$provider provider,".self::STATE." AS display_status FROM users u$clause ORDER BY u.created_at DESC,u.id DESC LIMIT 25 OFFSET $offset",array_merge([$now,$now,$now],$params));
         $day=$filters['day']??date('Y-m-d');
         $dayStart=$day.' 00:00:00'; $dayEnd=(new \DateTimeImmutable($day))->modify('+1 day')->format('Y-m-d').' 00:00:00';
         $dailyNew=(int)$this->rows('SELECT COUNT(*) total FROM users WHERE created_at>=? AND created_at<?',[$dayStart,$dayEnd])[0]['total'];
-        $dailyLogins=(int)$this->rows("SELECT COUNT(*) total FROM audit_events WHERE event_type='login_success' AND created_at>=? AND created_at<?",[$dayStart,$dayEnd])[0]['total'];
+        $dailyLogins=SchemaCapabilities::hasTable($this->db,'audit_events') ? (int)$this->rows("SELECT COUNT(*) total FROM audit_events WHERE event_type='login_success' AND created_at>=? AND created_at<?",[$dayStart,$dayEnd])[0]['total'] : null;
         $since=date('Y-m-d H:i:s',time()-86400);
         $subscriptions=$this->rows("SELECT s.provider,s.status,COUNT(*) total FROM user_subscriptions s WHERE s.accepted_at>=? AND s.accepted_at<=? GROUP BY s.provider,s.status ORDER BY s.provider,s.status",[$since,$now]);
         $subscriptionCount=(int)$this->rows("SELECT COUNT(*) total FROM user_subscriptions s JOIN users u ON u.id=s.user_id WHERE s.accepted_at>=? AND s.accepted_at<=?",[$since,$now])[0]['total'];
