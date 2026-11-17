@@ -23,5 +23,4 @@ SET u.account_status = CASE
     ) THEN 'active'
     ELSE 'inactive'
 END
-WHERE u.account_status <> 'blocked'
-  AND (u.ideamart_subscriber_id IS NOT NULL OR u.mspace_subscriber_id IS NOT NULL);
+WHERE u.account_status <> 'blocked';

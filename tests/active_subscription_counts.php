@@ -9,10 +9,10 @@ require dirname(__DIR__).'/app/Services/DashboardMetrics.php';
 use Divigamana\Services\DashboardMetrics;
 
 $db=new PDO('sqlite::memory:',null,null,[PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION]);
-$db->exec('CREATE TABLE users (id INTEGER PRIMARY KEY, mobile_e164 TEXT, account_status TEXT, phone_verified_real INTEGER)');
+$db->exec("CREATE TABLE users (id INTEGER PRIMARY KEY, mobile_e164 TEXT, account_status TEXT, phone_verified_real INTEGER, created_at TEXT DEFAULT '2026-10-24 12:00:00')");
 $db->exec('CREATE TABLE user_subscriptions (id INTEGER PRIMARY KEY,user_id INTEGER,status TEXT,is_simulated INTEGER,provider TEXT,accepted_at TEXT)');
 $db->exec('CREATE TABLE payment_transactions (id INTEGER PRIMARY KEY,user_id INTEGER,amount DECIMAL,currency TEXT,status TEXT,is_simulated INTEGER,provider TEXT,created_at TEXT)');
-$user=$db->prepare('INSERT INTO users VALUES (?,?,?,?)');
+$user=$db->prepare('INSERT INTO users (id,mobile_e164,account_status,phone_verified_real) VALUES (?,?,?,?)');
 foreach ([1,2,3,4,5,7] as $id) $user->execute([$id,'+9477'.str_pad((string)$id,7,'0',STR_PAD_LEFT),'active',1]);
 $sub=$db->prepare('INSERT INTO user_subscriptions VALUES (?,?,?,?,?,?)');
 foreach ([
@@ -29,6 +29,7 @@ $metrics=new DashboardMetrics($db);
 $report=$metrics->report(); $records=$report['subscriptionRecords'];
 expectActiveCount((int)$records['active']===4 && (int)$records['simulated_active']===4 && (int)$records['real_active']===0,'visible subscription records include four active simulated rows');
 expectActiveCount((int)$report['summary']['active']===6,'active user count comes from users.account_status');
+expectActiveCount((int)$report['platform']['ideamart']['total']===6 && (int)$report['platform']['ideamart']['active']===6,'IdeaMart platform count uses Dialog/Hutch/Airtel prefixes');
 $db->exec("UPDATE user_subscriptions SET status='active' WHERE id=7");
 $report=$metrics->report(); $records=$report['subscriptionRecords'];
 expectActiveCount((int)$records['active']===5 && (int)$records['real_active']===1 && (int)$records['simulated_active']===4 && (int)$report['summary']['active']===6,'subscription records do not change the account-status active count');

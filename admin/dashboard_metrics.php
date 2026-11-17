@@ -4,7 +4,7 @@ $summary=$overview['summary'];
 $percent=static fn($part,$total): string => number_format($total ? 100*(int)$part/(int)$total : 0,2).'%';
 $money=static fn($amount): string => 'LKR '.number_format((float)$amount,2);
 $providerNames=['dialog'=>'Dialog','mobitel'=>'Mobitel','airtel'=>'Airtel','hutch'=>'Hutch','other'=>'Other'];
-$platformNames=['mspace'=>'Mobitel (mSpace)','ideamart'=>'IdeaMart'];
+$platformNames=['ideamart'=>'Dialog/Hutch/Airtel (IdeaMart)','mspace'=>'Mobitel (mSpace)','other'=>'Other'];
 ?>
 <section class="reference-stats" aria-label="Overview">
   <article><strong><?=number($summary['total'])?></strong><b>Total users</b><span>Everyone who entered a number</span></article>

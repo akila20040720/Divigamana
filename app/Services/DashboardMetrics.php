@@ -42,9 +42,15 @@ final class DashboardMetrics {
             $todayPin['total']+=$count; $todayPin[$verified?'entered':'pending']+=$count;
             if ($verified) $todayFunnel[$key]['pin']+=$count;
         }
-        // A user's IdeaMart and mSpace rows can have different states. Count
-        // the latest real record for each platform independently.
-        $platformRows=$this->rows("SELECT s.provider, COUNT(*) total, SUM(CASE WHEN u.account_status<>'blocked' AND s.status='active' THEN 1 ELSE 0 END) active, SUM(CASE WHEN u.account_status<>'blocked' AND s.status<>'active' THEN 1 ELSE 0 END) inactive, SUM(CASE WHEN u.account_status='blocked' THEN 1 ELSE 0 END) blocked FROM user_subscriptions s JOIN users u ON u.id=s.user_id WHERE s.is_simulated=0 AND s.provider IN ('ideamart','mspace') AND NOT EXISTS (SELECT 1 FROM user_subscriptions newer WHERE newer.user_id=s.user_id AND newer.provider=s.provider AND newer.is_simulated=0 AND newer.id>s.id) GROUP BY s.provider");
+        // API platform is determined by the MSISDN prefix. Account status is
+        // sourced from users so the platform totals include users before or
+        // between provider subscription callbacks.
+        $platformCase="CASE
+            WHEN SUBSTR(u.mobile_e164,1,5) IN ('+9470','+9471') THEN 'mspace'
+            WHEN SUBSTR(u.mobile_e164,1,5) IN ('+9474','+9477','+9476','+9472','+9478','+9475') THEN 'ideamart'
+            ELSE 'other'
+        END";
+        $platformRows=$this->rows("SELECT $platformCase provider, COUNT(*) total, SUM(CASE WHEN u.account_status='active' THEN 1 ELSE 0 END) active, SUM(CASE WHEN u.account_status<>'active' THEN 1 ELSE 0 END) inactive, SUM(CASE WHEN u.account_status='blocked' THEN 1 ELSE 0 END) blocked FROM users u GROUP BY $platformCase");
         foreach ($platformRows as $row) $platform[$row['provider']]=$row;
         $charges=$this->rows("SELECT $provider provider, COUNT(*) attempts FROM payment_transactions p JOIN users u ON u.id=p.user_id WHERE p.is_simulated=0 GROUP BY $provider");
         foreach ($charges as $row) if (isset($funnel[$row['provider']])) $funnel[$row['provider']]['charges']=(int)$row['attempts'];
