@@ -45,6 +45,8 @@ Visit `/admin/` and sign in with `ADMIN_USERNAME` and `ADMIN_PASSWORD` from `.en
 
 For a new, empty database, import `database/schema.sql` and then `database/seed.sql`. For an existing installation, **do not drop or reimport the database**: run `php scripts/migrate-dashboard.php` on the server after taking a backup. This adds missing dashboard fields and indexes and runs the non-destructive catalog seed. It is safe to rerun, but it only migrates the fields needed by the dashboard; apply any other applicable application migrations separately. Existing subscription records are classified as IdeaMart only where the provider was missing and an IdeaMart subscriber ID identifies them. MySQL DDL can commit each change separately, so a failed migration may be rerun after correcting the cause.
 
+Run the dashboard migration before deploying the updated application code: successful sign-ins now record `first_login_at` and login events. First-login timestamps and login-event counts were not recorded previously and cannot be reconstructed from existing data. Number submissions are recorded going forward, including requests for which an OTP could not be sent.
+
 The overview counts users with a current, unexpired active subscription, using the most recent record per provider. Inactive means users with no such subscription; blocked users can overlap either count. Provider counts use mobile prefixes. The verification report and directory filters use the user's **join date** and current verification state, because the database does not store when verification happened. The last 24 hours report lists each stored subscription with its `accepted_at` time and mobile number, and groups records by provider and current recorded status; an update to an existing record does not create a new event. Historical subscription data is limited to records already stored by the application.
 
 Run `php tests/admin_dashboard.php` to exercise reporting and filters with an in-memory database.
@@ -67,6 +69,15 @@ The mSpace CAAS integration uses the documented endpoints
 `requestCorrelator` is sent back as `referenceNo` during verification. Keep
 `MSPACE_LIVE` and `MSPACE_CAAS_LIVE` disabled until Mobitel has provisioned the
 application and allow-listed the production server IP.
+
+Configure the mSpace charging notification URL as
+`https://divigamana.lk/api.php?action=mspace-charge-notification`. Set a long random
+`MSPACE_CAAS_CALLBACK_TOKEN` and configure the same value in the Mobitel callback
+request as the `X-MSpace-Callback-Token` header (or the `token` query parameter).
+The callback validates the application, subscriber, amount, currency, and external
+transaction ID before updating the matching payment. It acknowledges malformed or
+unmatched notifications with the carrier success response without changing payment
+state.
 
 Authentication OTPs are routed by operator prefix. Mobitel `070` and `071` numbers use
 the mSpace OTP request/verify endpoints (`MSPACE_OTP_REQUEST_URL` and

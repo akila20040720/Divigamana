@@ -8,6 +8,7 @@ CREATE TABLE users (
     role ENUM('user','admin') NOT NULL DEFAULT 'user',
     account_status ENUM('active','blocked') NOT NULL DEFAULT 'active',
     blocked_at DATETIME NULL,
+    first_login_at DATETIME NULL,
     last_login_at DATETIME NULL,
     preferred_locale VARCHAR(10) NOT NULL DEFAULT 'si-LK',
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,

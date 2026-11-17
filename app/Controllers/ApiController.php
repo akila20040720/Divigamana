@@ -42,9 +42,6 @@ final class ApiController {
     }
     private static function development(): bool { return (APP_CONFIG['app_env']??'production')==='development'; }
     private static function skipDatabase(): bool { return !empty(APP_CONFIG['skip_database_check']); }
-    private static function touchLogin($pdo, int $userId): void {
-        $pdo->prepare('UPDATE users SET last_login_at=NOW() WHERE id=?')->execute([$userId]);
-    }
     private static function configuredAmount(string $amount): bool {
         if (!preg_match('/^(?:0|[1-9]\d{0,7})\.\d{2}$/',$amount)||$amount==='0.00') return false;
         $amounts=array_values(array_unique(array_map(static fn(array $service): string=>$service['price_lkr'],array_filter(ServiceCatalog::all(),static fn(array $service): bool=>$service['paid']))));
@@ -149,6 +146,13 @@ final class ApiController {
         if (!$mobile) Http::json(['ok'=>false,'error'=>'Enter a valid Sri Lankan mobile number.'],422);
         $rateKey='otp:'.hash('sha256',$mobile.'|'.(string)($_SERVER['REMOTE_ADDR']??''));
         if (!self::development() && !self::rate($rateKey,60)) Http::json(['ok'=>false,'error'=>'Please wait before requesting another code.'],429);
+        // Record valid number submissions even if the provider cannot send an OTP.
+        // Existing users retain their verification and administrative state.
+        try {
+            Database::pdo()->prepare("INSERT IGNORE INTO users (mobile_e164,role) VALUES (?,'user')")->execute([$mobile]);
+        } catch (\Throwable $error) {
+            error_log('Pending mobile registration tracking failed: '.$error->getMessage());
+        }
         if (self::isMobitel($mobile)) {
             try {
                 $response=(new MspaceClient())->otpRequest('tel:'.substr($mobile,1),[
@@ -204,13 +208,6 @@ final class ApiController {
                     unset($_SESSION['rate'][$rateKey]);
                     error_log('Ideamart OTP request rejected: '.IdeamartClient::diagnostic($response));
                     Http::json(['ok'=>false,'error'=>'Could not send the verification code. Please try again.'],502);
-                }
-                // Track the signup attempt after IdeaMart confirms it sent the OTP.
-                // The dashboard uses this pending row until phone verification succeeds.
-                try {
-                    Database::pdo()->prepare("INSERT IGNORE INTO users (mobile_e164,role) VALUES (?,'user')")->execute([$mobile]);
-                } catch (\Throwable $error) {
-                    error_log('Pending mobile registration tracking failed: '.$error->getMessage());
                 }
                 $_SESSION['otp_reference']=$response['referenceNo']??null;
                 $_SESSION['otp_mobile']=$mobile;
@@ -306,8 +303,9 @@ final class ApiController {
                 $pdo->prepare('UPDATE users SET otp_verified_demo=0,phone_verified_real=1,ideamart_subscriber_id=COALESCE(?,ideamart_subscriber_id),mspace_subscriber_id=COALESCE(?,mspace_subscriber_id) WHERE id=?')->execute([$subscriberId??null,$mspaceSubscriberId??null,$user['id']]);
                 self::saveProviderSubscription($pdo,(int)$user['id'],$mspaceSubscriberId!==null?'mspace':'ideamart',$subscriptionStatus);
             }
+            $pdo->prepare('UPDATE users SET first_login_at=COALESCE(first_login_at,NOW()),last_login_at=NOW() WHERE id=?')->execute([(int)$user['id']]);
+            $pdo->prepare("INSERT INTO audit_events (user_id,event_type,created_at) VALUES (?,'login_success',NOW())")->execute([(int)$user['id']]);
             $pdo->commit();
-            self::touchLogin($pdo, (int)$user['id']);
             Session::login($user);
             unset($_SESSION['otp_mobile'],$_SESSION['otp_reference'],$_SESSION['otp_provider'],$_SESSION['otp_code_hash'],$_SESSION['otp_expires_at'],$_SESSION['otp_attempts']);
             Http::json(['ok'=>true,'user'=>Session::user(),'simulated'=>false]);
@@ -470,6 +468,52 @@ final class ApiController {
             error_log('IdeaMart charging callback database failure: '.$error->getMessage());
         }
     }
+    public static function mspaceChargeNotification(): void {
+        // mSpace callbacks are acknowledged with the carrier success response, but
+        // only a validated notification may change a recorded payment.
+        $input=Http::input();
+        $external=trim((string)($input['externalTrxId']??''));
+        $statusCode=strtoupper(trim((string)($input['statusCode']??'')));
+        $applicationId=trim((string)($input['applicationId']??''));
+        $expectedApplicationId=(string)(APP_CONFIG['mspace']['application_id']??'');
+        $callbackToken=(string)(APP_CONFIG['mspace']['caas_callback_token']??'');
+        $providedToken=(string)($_GET['token']??($_SERVER['HTTP_X_MSPACE_CALLBACK_TOKEN']??''));
+        $subscriberId=trim((string)($input['subscriberId']??''));
+        $amount=self::normalizedMoney((string)($input['amount']??''));
+        $currency=strtoupper(trim((string)($input['currency']??'')));
+        if ($callbackToken===''||!hash_equals($callbackToken,$providedToken)
+            ||!preg_match('/^[A-Za-z0-9._-]{1,32}$/',$external)
+            ||$statusCode===''||$subscriberId===''||$amount===null||$currency!=='LKR'
+            ||($applicationId!==''&&($expectedApplicationId===''||!hash_equals($expectedApplicationId,$applicationId)))) {
+            error_log('mSpace charging callback rejected.');
+            self::acknowledgeIdeamartCallback();
+            return;
+        }
+        self::acknowledgeIdeamartCallback();
+        try {
+            $pdo=Database::pdo();
+            $find=$pdo->prepare("SELECT p.id,p.amount,p.currency,u.mspace_subscriber_id FROM payment_transactions p JOIN users u ON u.id=p.user_id WHERE p.provider='mspace' AND p.external_reference=? LIMIT 1");
+            $find->execute([$external]);
+            $transaction=$find->fetch(\PDO::FETCH_ASSOC);
+            if (!$transaction
+                ||!hash_equals((string)$transaction['mspace_subscriber_id'],$subscriberId)
+                ||self::normalizedMoney((string)$transaction['amount'])!==$amount
+                ||strtoupper((string)$transaction['currency'])!==$currency) {
+                error_log('mSpace charging callback did not match a stored transaction.');
+                return;
+            }
+            $reference=substr(trim((string)($input['internalTrxId']??$input['referenceNo']??'')),0,120);
+            if ($statusCode==='S1000') {
+                $pdo->prepare("UPDATE payment_transactions SET status='paid',provider_reference=COALESCE(NULLIF(?,''),provider_reference) WHERE id=? AND status<>'refunded'")->execute([$reference,$transaction['id']]);
+            } else {
+                // A delayed failure must never overwrite a confirmed debit.
+                $pdo->prepare("UPDATE payment_transactions SET status='failed',provider_reference=COALESCE(NULLIF(?,''),provider_reference) WHERE id=? AND status='authorized'")->execute([$reference,$transaction['id']]);
+                error_log('mSpace charging callback reported: statusCode='.$statusCode);
+            }
+        } catch (\Throwable $error) {
+            error_log('mSpace charging callback database failure: '.$error->getMessage());
+        }
+    }
     public static function caasBalance(): void {
         $input=Http::input(); Http::requirePostCsrf($input);
         $user=self::ideamartUser();
@@ -593,7 +637,6 @@ final class ApiController {
             $statement->execute([$user['id']]);
             $account=$statement->fetch(\PDO::FETCH_ASSOC);
             $verified=(bool)($account['phone_verified_real']??false);
-            self::touchLogin($pdo,(int)$user['id']);
             $mspaceCaasFree=self::isMobitel((string)($account['mobile_e164']??''))
                 && !empty($account['mspace_subscriber_id'])
                 && !empty($account['mspace_subscription_active']);

@@ -8,7 +8,8 @@ use PDO;
 final class AdminDashboard {
     private const PROVIDER = "CASE WHEN SUBSTR(u.mobile_e164,1,4) IN ('+947') THEN CASE SUBSTR(u.mobile_e164,5,1) WHEN '4' THEN 'dialog' WHEN '7' THEN 'dialog' WHEN '6' THEN 'dialog' WHEN '0' THEN 'mobitel' WHEN '1' THEN 'mobitel' WHEN '5' THEN 'airtel' WHEN '2' THEN 'hutch' WHEN '8' THEN 'hutch' ELSE 'other' END ELSE 'other' END";
     // A newer row for the same carrier supersedes an older state.
-    private const ACTIVE = "EXISTS (SELECT 1 FROM user_subscriptions s WHERE s.user_id=u.id AND s.status='active' AND s.starts_at<=? AND s.ends_at>? AND NOT EXISTS (SELECT 1 FROM user_subscriptions newer WHERE newer.user_id=s.user_id AND newer.provider=s.provider AND newer.id>s.id))";
+    public const ACTIVE = "EXISTS (SELECT 1 FROM user_subscriptions s WHERE s.user_id=u.id AND s.status='active' AND ((s.provider='mspace' AND (s.ends_at>? OR UPPER(COALESCE(s.provider_status,'')) IN ('REGISTERED','ACTIVE','SUBSCRIBED'))) OR (s.provider<>'mspace' AND s.starts_at<=? AND s.ends_at>?)) AND NOT EXISTS (SELECT 1 FROM user_subscriptions newer WHERE newer.user_id=s.user_id AND newer.provider=s.provider AND newer.id>s.id))";
+    public const STATE = "CASE WHEN u.account_status='blocked' THEN 'blocked' WHEN ".self::ACTIVE." THEN 'active' WHEN u.phone_verified_real=0 THEN 'number_only' ELSE 'inactive' END";
     private PDO $db;
     public function __construct(PDO $db) { $this->db=$db; }
     private function rows(string $sql, array $params=[]): array {
@@ -17,9 +18,9 @@ final class AdminDashboard {
     public function report(array $filters, int $page=1, array $verificationDates=[], int $subscriptionPage=1): array {
         $now=date('Y-m-d H:i:s');
         $active=self::ACTIVE; $provider=self::PROVIDER;
-        $summary=$this->rows("SELECT COUNT(*) total, COALESCE(SUM(CASE WHEN $active THEN 1 ELSE 0 END),0) active, COALESCE(SUM(CASE WHEN u.account_status='blocked' THEN 1 ELSE 0 END),0) blocked FROM users u",[$now,$now])[0];
+        $summary=$this->rows("SELECT COUNT(*) total, COALESCE(SUM(CASE WHEN $active THEN 1 ELSE 0 END),0) active, COALESCE(SUM(CASE WHEN u.account_status='blocked' THEN 1 ELSE 0 END),0) blocked FROM users u",[$now,$now,$now])[0];
         $summary['inactive']=(int)$summary['total']-(int)$summary['active'];
-        $funnel=$this->rows("SELECT $provider provider, COUNT(*) total, SUM(CASE WHEN u.phone_verified_real=1 THEN 1 ELSE 0 END) verified, SUM(CASE WHEN $active THEN 1 ELSE 0 END) active FROM users u GROUP BY $provider",[$now,$now]);
+        $funnel=$this->rows("SELECT $provider provider, COUNT(*) total, SUM(CASE WHEN u.phone_verified_real=1 THEN 1 ELSE 0 END) verified, SUM(CASE WHEN $active THEN 1 ELSE 0 END) active FROM users u GROUP BY $provider",[$now,$now,$now]);
         $where=[]; $params=[];
         if ($filters['from']!=='') { $where[]='u.created_at>=?'; $params[]=$filters['from'].' 00:00:00'; }
         if ($filters['to']!=='') { $where[]='u.created_at<?'; $params[]=(new \DateTimeImmutable($filters['to']))->modify('+1 day')->format('Y-m-d').' 00:00:00'; }
@@ -28,6 +29,7 @@ final class AdminDashboard {
         if ($filters['verification']==='mspace') $where[]="u.phone_verified_real=1 AND u.mspace_subscriber_id IS NOT NULL AND u.mspace_subscriber_id<>''";
         if ($filters['verification']==='unverified') $where[]="(u.phone_verified_real=0 OR ((u.ideamart_subscriber_id IS NULL OR u.ideamart_subscriber_id='') AND (u.mspace_subscriber_id IS NULL OR u.mspace_subscriber_id='')))";
         if ($filters['search']!=='') { $where[]='u.mobile_e164 LIKE ?'; $params[]='%'.$filters['search'].'%'; }
+        if (!empty($filters['status'])) { $where[]='('.self::STATE.')=?'; array_push($params,$now,$now,$now,$filters['status']); }
         $clause=$where?' WHERE '.implode(' AND ',$where):'';
         $verificationWhere=[]; $verificationParams=[];
         if (!empty($verificationDates['from'])) { $verificationWhere[]='u.created_at>=?'; $verificationParams[]=$verificationDates['from'].' 00:00:00'; }
@@ -35,7 +37,11 @@ final class AdminDashboard {
         $verificationClause=$verificationWhere?' WHERE '.implode(' AND ',$verificationWhere):'';
         $verification=$this->rows("SELECT COUNT(*) total, COALESCE(SUM(CASE WHEN u.phone_verified_real=1 AND u.ideamart_subscriber_id IS NOT NULL AND u.ideamart_subscriber_id<>'' THEN 1 ELSE 0 END),0) ideamart, COALESCE(SUM(CASE WHEN u.phone_verified_real=1 AND u.mspace_subscriber_id IS NOT NULL AND u.mspace_subscriber_id<>'' THEN 1 ELSE 0 END),0) mspace FROM users u$verificationClause",$verificationParams)[0];
         $count=(int)$this->rows("SELECT COUNT(*) total FROM users u$clause",$params)[0]['total']; $pages=max(1,(int)ceil($count/25)); $page=max(1,min($page,$pages)); $offset=($page-1)*25;
-        $users=$this->rows("SELECT u.mobile_e164,u.account_status,u.phone_verified_real,u.ideamart_subscriber_id,u.mspace_subscriber_id,u.created_at,u.last_login_at,$provider provider FROM users u$clause ORDER BY u.created_at DESC,u.id DESC LIMIT 25 OFFSET $offset",$params);
+        $users=$this->rows("SELECT u.id,u.mobile_e164,u.account_status,u.phone_verified_real,u.ideamart_subscriber_id,u.mspace_subscriber_id,u.created_at,u.first_login_at,u.last_login_at,$provider provider,".self::STATE." AS display_status FROM users u$clause ORDER BY u.created_at DESC,u.id DESC LIMIT 25 OFFSET $offset",array_merge([$now,$now,$now],$params));
+        $day=$filters['day']??date('Y-m-d');
+        $dayStart=$day.' 00:00:00'; $dayEnd=(new \DateTimeImmutable($day))->modify('+1 day')->format('Y-m-d').' 00:00:00';
+        $dailyNew=(int)$this->rows('SELECT COUNT(*) total FROM users WHERE created_at>=? AND created_at<?',[$dayStart,$dayEnd])[0]['total'];
+        $dailyLogins=(int)$this->rows("SELECT COUNT(*) total FROM audit_events WHERE event_type='login_success' AND created_at>=? AND created_at<?",[$dayStart,$dayEnd])[0]['total'];
         $since=date('Y-m-d H:i:s',time()-86400);
         $subscriptions=$this->rows("SELECT s.provider,s.status,COUNT(*) total FROM user_subscriptions s WHERE s.accepted_at>=? AND s.accepted_at<=? GROUP BY s.provider,s.status ORDER BY s.provider,s.status",[$since,$now]);
         $subscriptionCount=(int)$this->rows("SELECT COUNT(*) total FROM user_subscriptions s JOIN users u ON u.id=s.user_id WHERE s.accepted_at>=? AND s.accepted_at<=?",[$since,$now])[0]['total'];
@@ -43,6 +49,6 @@ final class AdminDashboard {
         $subscriptionPage=max(1,min($subscriptionPage,$subscriptionPages));
         $subscriptionOffset=($subscriptionPage-1)*25;
         $subscriptionRows=$this->rows("SELECT s.accepted_at,u.mobile_e164,s.provider,s.status FROM user_subscriptions s JOIN users u ON u.id=s.user_id WHERE s.accepted_at>=? AND s.accepted_at<=? ORDER BY s.accepted_at DESC,s.id DESC LIMIT 25 OFFSET $subscriptionOffset",[$since,$now]);
-        return compact('summary','funnel','verification','users','subscriptions','count','pages','page','subscriptionCount','subscriptionPages','subscriptionPage','subscriptionRows');
+        return compact('summary','funnel','verification','users','subscriptions','count','pages','page','subscriptionCount','subscriptionPages','subscriptionPage','subscriptionRows','dailyNew','dailyLogins');
     }
 }

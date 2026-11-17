@@ -28,7 +28,7 @@ foreach (ApiRoutes::all() as $action=>$route) {
     $method=$route['method'];
     $result=apiCase($action,$method);
     if ($method==='GET') check($result['status']===200&&is_array($result['body'])&&($result['body']['ok']??false)===true,"$method $action responds safely");
-    elseif (in_array($action,['ideamart-subscription-notification','ideamart-charge-notification'],true)) check($result['status']===200&&($result['body']['statusCode']??'')==='S1000',"$method $action safely acknowledges an invalid carrier callback");
+    elseif (in_array($action,['ideamart-subscription-notification','ideamart-charge-notification','mspace-charge-notification'],true)) check($result['status']===200&&($result['body']['statusCode']??'')==='S1000',"$method $action safely acknowledges an invalid carrier callback");
     else check($result['status']===419&&($result['body']['ok']??true)===false,"$method $action rejects missing CSRF");
     $wrong=apiCase($action,$method==='GET'?'POST':'GET');
     check($wrong['status']===405,"$action rejects the wrong HTTP method");
@@ -116,7 +116,7 @@ $controllerSource=file_get_contents(dirname(__DIR__).'/app/Controllers/ApiContro
 check(is_string($controllerSource)&&str_contains($controllerSource,"new IdeamartClient())->chargingEnabled()")&&str_contains($controllerSource,"new MspaceClient())->chargingEnabled()"),'paid readings use the selected carrier CAAS gate');
 check(is_string($controllerSource)&&str_contains($controllerSource,"provider=? AND external_reference"),'paid readings reconcile the selected carrier payment');
 check(is_string($controllerSource)&&str_contains($controllerSource,"saveProviderSubscription"),'provider subscriptions are persisted under the verified carrier');
-check(is_string($controllerSource)&&str_contains($controllerSource,"self::touchLogin(\$pdo,(int)\$user['id'])"),'authenticated status refreshes the last-login timestamp');
+check(is_string($controllerSource)&&str_contains($controllerSource,"first_login_at=COALESCE(first_login_at,NOW()),last_login_at=NOW()")&&str_contains($controllerSource,"'login_success'"),'successful OTP login records login timestamps and event');
 check(is_string($controllerSource)&&str_contains($controllerSource,'mSpace rejected this number. Confirm it is an active Mobitel 070 or 071 number'),'Mobitel OTP remains on mSpace when the provider rejects the recipient');
 check(is_string($controllerSource)&&str_contains($controllerSource,'mspaceSubscriptionExistsSql'),'mSpace access uses a shared subscription gate');
 check(is_string($controllerSource)&&str_contains($controllerSource,"'ACTIVE','SUBSCRIBED'"),'mSpace active subscription states bypass CAAS');

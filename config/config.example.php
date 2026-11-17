@@ -17,6 +17,7 @@ return [
         'sms_source_address' => getenv('MSPACE_SMS_SOURCE_ADDRESS') ?: '',
         'caas_debit_url' => getenv('MSPACE_CAAS_DEBIT_URL') ?: '',
         'caas_otp_verify_url' => getenv('MSPACE_CAAS_OTP_VERIFY_URL') ?: '',
+        'caas_callback_token' => getenv('MSPACE_CAAS_CALLBACK_TOKEN') ?: '',
     ],
     'ideamart_live' => filter_var(getenv('IDEAMART_LIVE') ?: 'false', FILTER_VALIDATE_BOOLEAN),
     'ideamart_caas_live' => filter_var(getenv('IDEAMART_CAAS_LIVE') ?: 'false', FILTER_VALIDATE_BOOLEAN),
@@ -62,4 +63,3 @@ return [
     // Rahu Kalaya uses a transparent Colombo time calculation, not an AI guess.
     'rahu' => ['location'=>'Colombo, Sri Lanka','sunrise'=>'06:05','sunset'=>'18:20'],
 ];
-
