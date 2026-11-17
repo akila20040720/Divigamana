@@ -23,9 +23,16 @@ $reporter=new AdminDashboard($db);
 $filters=['from'=>'','to'=>'','provider'=>'','verification'=>'','search'=>''];
 $r=$reporter->report($filters);
 function expect(bool $condition,string $label): void { if (!$condition) { fwrite(STDERR,"FAIL $label\n"); exit(1); } echo "PASS $label\n"; }
-expect((int)$r['summary']['total']===3 && (int)$r['summary']['active']===1 && (int)$r['summary']['inactive']===1 && (int)$r['summary']['blocked']===1,'summary follows recorded subscription state and excludes blocked accounts');
+expect((int)$r['summary']['total']===3 && (int)$r['summary']['active']===2 && (int)$r['summary']['inactive']===0 && (int)$r['summary']['blocked']===1,'summary counts any active subscription and excludes blocked accounts');
+$directory=['from'=>'2026-01-01','to'=>'2026-01-01','provider'=>'','verification'=>'','search'=>'','status'=>'active','day'=>''];
+$allDates=$reporter->report(AdminDashboard::directoryFilters($directory));
+expect($allDates['count']===2 && (int)$allDates['summary']['active']===2,'active directory defaults to all join dates and matches overview');
+$directory['day']='2026-01-01';
+expect($reporter->report(AdminDashboard::directoryFilters($directory))['count']===1,'selecting a join date narrows the active directory');
+$directory['search']='94751234567';
+expect($reporter->report(AdminDashboard::directoryFilters($directory))['count']===1,'phone search spans all dates even when a join date is selected');
 $by=[]; foreach ($r['funnel'] as $row) $by[$row['provider']]=$row;
-expect((int)$by['dialog']['total']===1 && (int)$by['mobitel']['active']===0 && (int)$by['airtel']['verified']===0,'provider funnel uses mobile prefixes and excludes blocked accounts from active');
+expect((int)$by['dialog']['total']===1 && (int)$by['dialog']['active']===1 && (int)$by['mobitel']['active']===0 && (int)$by['airtel']['verified']===0,'provider funnel uses mobile prefixes and excludes blocked accounts from active');
 expect((int)$r['verification']['ideamart']===1 && (int)$r['verification']['mspace']===1 && count($r['subscriptions'])===3,'verification and rolling subscription groups');
 $db->exec("INSERT INTO audit_events VALUES (1,1,'login_success','2026-01-02 10:00:00'),(2,1,'login_success','2026-01-03 10:00:00')");
 $daily=$reporter->report(array_merge($filters,['day'=>'2026-01-02']));

@@ -46,6 +46,9 @@ final class DashboardMetrics {
         $since=date('Y-m-d',strtotime('-13 days')).' 00:00:00';
         $dailyCharges=$this->rows("SELECT SUBSTR(created_at,1,10) day, COUNT(*) attempts, SUM(CASE WHEN status='paid' THEN 1 ELSE 0 END) successful, SUM(CASE WHEN status='failed' THEN 1 ELSE 0 END) failed, SUM(CASE WHEN status='authorized' THEN 1 ELSE 0 END) authorized, SUM(CASE WHEN status='refunded' THEN 1 ELSE 0 END) refunded, SUM(CASE WHEN status NOT IN ('paid','failed','authorized','refunded') THEN 1 ELSE 0 END) other, SUM(CASE WHEN status='paid' AND currency='LKR' THEN amount ELSE 0 END) revenue FROM payment_transactions WHERE is_simulated=0 AND created_at>=? AND created_at<? GROUP BY SUBSTR(created_at,1,10) ORDER BY day DESC",[$since,$tomorrow]);
         $hourly=$this->rows("SELECT SUBSTR(accepted_at,1,13) hour,COUNT(*) total FROM user_subscriptions WHERE accepted_at>=? AND accepted_at<=? GROUP BY SUBSTR(accepted_at,1,13) ORDER BY hour DESC",[date('Y-m-d H:i:s',time()-86400),$now]);
+        // Raw rows intentionally include historical and simulated records. Keep
+        // them separate from effective account states so either can be audited.
+        $subscriptionRecords=$this->rows("SELECT COUNT(*) active, COALESCE(SUM(CASE WHEN is_simulated=0 THEN 1 ELSE 0 END),0) real_active, COALESCE(SUM(CASE WHEN is_simulated=1 THEN 1 ELSE 0 END),0) simulated_active FROM user_subscriptions WHERE status='active'")[0];
         // Historical transactions may predate failure-reason tracking. Never
         // infer insufficient balance from a generic failed payment.
         $caasReasonsAvailable=SchemaCapabilities::hasColumn($this->db,'payment_transactions','failure_reason');
@@ -62,6 +65,6 @@ final class DashboardMetrics {
             $caas['other']+=(int)$row['other'];
             if ($caasReasonsAvailable) $caas['insufficient']+=(int)$row['insufficient'];
         }
-        return compact('summary','funnel','platform','pin','todayCharges','allCharges','dailyCharges','hourly','caas');
+        return compact('summary','funnel','platform','pin','todayCharges','allCharges','dailyCharges','hourly','subscriptionRecords','caas');
     }
 }

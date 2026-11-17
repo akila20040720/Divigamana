@@ -20,9 +20,12 @@ function expectDirectory(bool $ok,string $message): void {
     if (!$ok) { fwrite(STDERR,"FAIL $message\n"); exit(1); }
     echo "PASS $message\n";
 }
-expectDirectory(count($users)===3 && $users[3]['display_status']==='inactive' && (int)$users[3]['directory_sub_id']===7 && $users[3]['sub_provider_status']==='INITIAL CHARGING PENDING','latest real inactive subscription overrides old simulated active status');
+expectDirectory(count($users)===3 && $users[3]['display_status']==='active' && (int)$users[3]['directory_sub_id']===7 && $users[3]['sub_provider_status']==='INITIAL CHARGING PENDING','older simulated active row counts even with a newer inactive real subscription');
 expectDirectory($users[7]['display_status']==='active' && (int)$users[7]['payment_id']===7 && $users[7]['payment_status']==='paid' && (float)$users[7]['payment_amount']===0.02 && $users[7]['payment_currency']==='LKR','latest payment is independent of subscription state and preserves amount');
 expectDirectory($users[8]['directory_sub_id']===null && $users[8]['payment_id']===null,'users without subscription or payment remain in directory');
 $db->exec("INSERT INTO user_subscriptions VALUES (9,3,'cancelled',1,'simulated',NULL,'2026-11-07 23:35:00','2026-11-07 23:35:00','2026-11-08 23:35:00')");
 $again=(new AdminDashboard($db))->report($filters); $users=[]; foreach ($again['users'] as $row) $users[(int)$row['id']]=$row;
-expectDirectory($users[3]['display_status']==='inactive' && (int)$users[3]['directory_sub_id']===9 && (int)$users[3]['sub_simulated']===1,'latest record is labelled independently of effective real-provider status');
+expectDirectory($users[3]['display_status']==='active' && (int)$users[3]['directory_sub_id']===9 && (int)$users[3]['sub_simulated']===1,'newer cancelled subscription does not suppress a stored active row');
+$db->exec("UPDATE user_subscriptions SET status='inactive' WHERE id=3");
+$again=(new AdminDashboard($db))->report($filters); $users=[]; foreach ($again['users'] as $row) $users[(int)$row['id']]=$row;
+expectDirectory($users[3]['display_status']==='inactive','user becomes inactive when no subscription row remains active');

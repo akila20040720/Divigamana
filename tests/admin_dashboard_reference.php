@@ -75,10 +75,10 @@ $daily=$directory->report(array_merge($filters,['day'=>'2026-03-10']));
 expectReference($daily['dailyNew']===2 && $daily['dailyLogins']===2,'selected day counts new users and login events within its date boundaries');
 $states=[];
 foreach ($report['users'] as $row) $states[$row['mobile_e164']]=$row['display_status'];
-expectReference($states['+94770000001']==='active' && $states['+94770000002']==='number_only' && $states['+94770000003']==='inactive' && $states['+94750000004']==='active' && $states['+94710000005']==='active' && $states['+94770000006']==='blocked' && $states['+94720000007']==='active' && $states['+94710000008']==='inactive','directory uses recorded subscription status even after the billing period and preserves blocked precedence');
+expectReference($states['+94770000001']==='active' && $states['+94770000002']==='number_only' && $states['+94770000003']==='active' && $states['+94750000004']==='active' && $states['+94710000005']==='active' && $states['+94770000006']==='blocked' && $states['+94720000007']==='active' && $states['+94710000008']==='inactive','directory counts any active row and preserves blocked precedence');
 $s=$overview['summary'];
-expectReference((int)$s['total']===8 && (int)$s['active']===4 && (int)$s['inactive']===3 && (int)$s['unsubscribed']===2 && (int)$s['pending']===1 && (int)$s['blocked']===1,'overview states match directory and form a partition');
-foreach (['active'=>4,'inactive'=>2,'number_only'=>1,'blocked'=>1] as $status=>$expected) {
+expectReference((int)$s['total']===8 && (int)$s['active']===5 && (int)$s['inactive']===2 && (int)$s['unsubscribed']===1 && (int)$s['pending']===1 && (int)$s['blocked']===1,'overview states match directory and form a partition');
+foreach (['active'=>5,'inactive'=>1,'number_only'=>1,'blocked'=>1] as $status=>$expected) {
     $filtered=$directory->report(array_merge($filters,['status'=>$status]));
     expectReference($filtered['count']===$expected && count($filtered['users'])===$expected,"$status filter matches directory state");
 }
@@ -93,7 +93,7 @@ expectReference((int)$today['attempts']===$expectedToday[0] && (int)$today['succ
 $db->exec("UPDATE user_subscriptions SET status='cancelled', provider_status='UNREGISTERED' WHERE id=1");
 $changed=$directory->report($filters); $changedOverview=$metrics->report();
 $changedStates=[]; foreach ($changed['users'] as $row) $changedStates[$row['mobile_e164']]=$row['display_status'];
-expectReference($changedStates['+94770000001']==='inactive' && (int)$changedOverview['summary']['active']===3 && (int)$changedOverview['summary']['unsubscribed']===3,'subscription update immediately changes directory and overview together');
+expectReference($changedStates['+94770000001']==='inactive' && (int)$changedOverview['summary']['active']===4 && (int)$changedOverview['summary']['unsubscribed']===2,'subscription update immediately changes directory and overview together');
 $subscription->execute([10,1,'ideamart','active','REGISTERED',$old,$old,$before]);
 $subscription->execute([11,3,'mspace','active','REGISTERED',$old,$old,$before]);
 $reactivated=$directory->report($filters); $reactivatedOverview=$metrics->report();
@@ -128,7 +128,7 @@ $caas=$metrics->report()['caas'];
 expectReference($caas['reasonsAvailable'] && $caas['attempts']===8 && $caas['successful']===3 && $caas['insufficient']===2, 'CAAS totals include real provider records and confirmed balance failures only');
 expectReference((int)$caas['operators']['dialog']['attempts']===4 && (int)$caas['operators']['dialog']['successful']===2 && (int)$caas['operators']['dialog']['insufficient']===1 && (int)$caas['operators']['mobitel']['attempts']===2 && (int)$caas['operators']['hutch']['insufficient']===1 && (int)$caas['operators']['airtel']['insufficient']===0, 'CAAS records group by number prefix and leave other failures unclassified');
 
-// Demo records must never keep a real cancelled/inactive subscription active.
+// All stored active records count, including simulated or older records.
 $newUser=$db->prepare('INSERT INTO users (id,mobile_e164,account_status,phone_verified_real,ideamart_subscriber_id,mspace_subscriber_id,created_at,last_login_at) VALUES (?,?,?,?,?,?,?,?)');
 foreach ([9,10,11] as $id) $newUser->execute([$id,'+9477'.str_pad((string)$id,7,'0',STR_PAD_LEFT),'active',1,'idea-'.$id,null,$before,null]);
 $subWithMode=$db->prepare('INSERT INTO user_subscriptions (id,user_id,provider,status,provider_status,starts_at,ends_at,accepted_at,is_simulated) VALUES (?,?,?,?,?,?,?,?,?)');
@@ -141,6 +141,6 @@ foreach ([
 ] as $row) $subWithMode->execute($row);
 $mixed=$directory->report($filters); $mixedRows=[];
 foreach ($mixed['users'] as $row) $mixedRows[$row['id']]=$row;
-expectReference($mixedRows[9]['display_status']==='active' && $mixedRows[10]['display_status']==='inactive' && $mixedRows[11]['display_status']==='active','real subscription status takes precedence over simulated records and simulated-only users retain their status');
+expectReference($mixedRows[9]['display_status']==='active' && $mixedRows[10]['display_status']==='active' && $mixedRows[11]['display_status']==='active','any active subscription counts regardless of simulation or newer inactive rows');
 expectReference((int)$mixedRows[10]['directory_sub_id']===22 && $mixedRows[10]['sub_provider_status']==='INITIAL CHARGING PENDING' && (int)$mixedRows[11]['directory_sub_id']===24 && (int)$mixedRows[11]['sub_simulated']===1,'directory shows the latest stored subscription independently of effective state');
 expectReference((int)$mixedRows[7]['payment_id']===10 && $mixedRows[7]['payment_status']==='paid' && (int)$mixedRows[7]['payment_simulated']===0 && $mixedRows[7]['payment_provider']==='simulated','directory shows the latest payment record independently of subscription state');

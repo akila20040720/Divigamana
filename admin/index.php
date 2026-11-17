@@ -54,7 +54,7 @@ if ($_SERVER['REQUEST_METHOD']==='POST') {
         } else { $error='Invalid username or password.'; }
     }
 }
-$day=(string)($_GET['day']??date('Y-m-d')); if (!validDate($day)) $day=date('Y-m-d');
+$day=(string)($_GET['day']??''); if ($day!=='' && !validDate($day)) $day='';
 $filters=['from'=>(string)($_GET['from']??''),'to'=>(string)($_GET['to']??''),'provider'=>(string)($_GET['provider']??''),'verification'=>(string)($_GET['verification']??''),'search'=>(string)($_GET['search']??''),'status'=>(string)($_GET['status']??''),'day'=>$day];
 $verificationDates=['from'=>(string)($_GET['verification_from']??''),'to'=>(string)($_GET['verification_to']??'')];
 foreach (['from','to'] as $key) if ($verificationDates[$key]!=='' && !validDate($verificationDates[$key])) $verificationDates[$key]='';
@@ -67,8 +67,8 @@ if (!in_array($filters['status'],['','active','inactive','number_only','blocked'
 $search=preg_replace('/[^0-9+]/','',$filters['search']);
 if (substr($search,0,1)==='0') $search='94'.substr($search,1);
 $filters['search']=substr($search,0,16);
-// A number search spans all dates; otherwise show the selected join date.
-if ($filters['search']==='') { $filters['from']=$day; $filters['to']=$day; } else { $filters['from']=''; $filters['to']=''; }
+// All dates is the default, so directory counts reconcile with the overview.
+$filters=AdminDashboard::directoryFilters($filters);
 $data=null;
 if ($authenticated) {
     try { $data=(new AdminDashboard(Database::pdo()))->report($filters,max(1,(int)($_GET['page']??1)),$verificationDates,max(1,(int)($_GET['subscription_page']??1))); $overview=(new DashboardMetrics(Database::pdo()))->report(); }
@@ -89,17 +89,18 @@ $query=array_merge($filters,['day'=>$day,'verification_from'=>$verificationDates
 <?php if ($error): ?><p class="error" role="alert"><?=h($error)?></p><?php endif ?>
 <?php if ($data && isset($overview)): ?>
 <div data-dashboard-metrics><?php require __DIR__.'/dashboard_metrics.php'; ?></div>
-<section class="panel" id="users"><div class="section-heading"><div><p class="eyebrow">DIRECTORY</p><h2>User management</h2><p class="muted">The selected date filters first visits; phone search covers all dates. Latest records include simulations and may differ from account state when a user has multiple subscriptions.</p></div></div>
+<section class="panel" id="users"><div class="section-heading"><div><p class="eyebrow">DIRECTORY</p><h2>User management</h2><p class="muted">Showing all first-visit dates by default. Select a date to narrow the list; phone search covers all dates. Latest records include simulations and may differ from account state when a user has multiple subscriptions.</p></div></div>
 <form class="user-toolbar" method="get" action="#users">
-<a class="user-pill" href="<?=h(pageLink(array_merge($query,['day'=>(new DateTimeImmutable($day))->modify('-1 day')->format('Y-m-d'),'search'=>'','page'=>1]),'users'))?>">‹ Prev</a>
+<?php if ($day!==''): ?><a class="user-pill" href="<?=h(pageLink(array_merge($query,['day'=>(new DateTimeImmutable($day))->modify('-1 day')->format('Y-m-d'),'search'=>'','page'=>1]),'users'))?>">‹ Prev</a><?php endif ?>
+<a class="user-pill<?=$day===''?' is-selected':''?>" href="<?=h(pageLink(array_merge($query,['day'=>'','search'=>'','page'=>1]),'users'))?>">All dates</a>
 <label><span class="sr-only">Join date</span><input type="date" name="day" value="<?=h($day)?>"></label>
-<?php if ($day<date('Y-m-d')): ?><a class="user-pill" href="<?=h(pageLink(array_merge($query,['day'=>(new DateTimeImmutable($day))->modify('+1 day')->format('Y-m-d'),'search'=>'','page'=>1]),'users'))?>">Next ›</a><?php endif ?>
+<?php if ($day!=='' && $day<date('Y-m-d')): ?><a class="user-pill" href="<?=h(pageLink(array_merge($query,['day'=>(new DateTimeImmutable($day))->modify('+1 day')->format('Y-m-d'),'search'=>'','page'=>1]),'users'))?>">Next ›</a><?php endif ?>
 <label><span class="sr-only">Search phone</span><input name="search" inputmode="tel" placeholder="Search phone (all dates)" value="<?=h($filters['search'])?>"></label>
 <input type="hidden" name="status" value="<?=h($filters['status'])?>"><button>Search</button>
 </form>
 <nav class="user-status-filters" aria-label="Account state"><?php foreach([''=>'All','active'=>'Active','inactive'=>'Inactive (subscription not active)','number_only'=>'Inactive (PIN not entered)','blocked'=>'Blocked'] as $status=>$label): ?><a class="user-pill<?=$filters['status']===$status?' is-selected':''?>" href="<?=h(pageLink(array_merge($query,['status'=>$status,'page'=>1]),'users'))?>"><?=h($label)?></a><?php endforeach ?></nav>
 <div data-user-results>
-<p class="muted user-count"><?=h($day===date('Y-m-d')?'Today':$day)?> <?=number($data['dailyNew'])?> new · <?=$data['dailyLogins']===null?'Login count unavailable':number($data['dailyLogins']).' recorded logins'?> · <?=number($data['count'])?> matching users <small>(login tracking started with this update)</small></p>
+<p class="muted user-count"><?=h($day==='' || $day===date('Y-m-d')?'Today':$day)?> <?=number($data['dailyNew'])?> new · <?=$data['dailyLogins']===null?'Login count unavailable':number($data['dailyLogins']).' recorded logins'?> · <?=number($data['count'])?> matching users (<?=h($filters['search']!=='' || $day===''?'all dates':$day)?>) <small>(login tracking started with this update)</small></p>
 <div class="table-wrap"><table><thead><tr><th>Phone</th><th>Account state</th><th>Latest subscription record</th><th>Latest payment record</th><th>First visit</th><th>First login</th><th>Last login</th><th><span class="sr-only">Action</span></th></tr></thead><tbody>
 <?php foreach($data['users'] as $user):
     $state=$user['display_status'];
