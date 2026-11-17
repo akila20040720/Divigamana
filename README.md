@@ -47,6 +47,8 @@ For a new, empty database, import `database/schema.sql` and then `database/seed.
 
 For existing installations, run [`database/migration_subscription_account_status.sql`](database/migration_subscription_account_status.sql) once. It adds the `inactive` account state and synchronizes current provider subscription records without overriding blocked accounts. Subsequent IdeaMart subscription, unsubscribe, and callback status updates synchronize `users.account_status` automatically.
 
+If legacy rows with no `blocked_at` timestamp were classified as blocked, run [`database/migration_fix_account_status_counts.sql`](database/migration_fix_account_status_counts.sql) once to restore them to `inactive`. Administrator-blocked rows retain their `blocked` status.
+
 Run the dashboard migration before deploying the updated application code: successful sign-ins now record `first_login_at` and login events. First-login timestamps and login-event counts were not recorded previously and cannot be reconstructed from existing data. Number submissions are recorded going forward, including requests for which an OTP could not be sent.
 
 After deployment, run `php scripts/preflight.php` from the deployed application directory to check the database connection and required dashboard columns. The dashboard migration adds a missing `users.first_login_at` and creates `audit_events` if the table is absent; it does not replace existing records. If an existing `audit_events` table lacks required columns, apply the appropriate base-schema migration for that installation. The cPanel deployment copies both `admin/index.php` and its dashboard template; deploying only the index file leaves the dashboard incomplete.

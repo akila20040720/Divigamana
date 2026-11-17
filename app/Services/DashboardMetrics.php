@@ -24,11 +24,10 @@ final class DashboardMetrics {
             if (!isset($funnel[$key])) $funnel[$key]=['total'=>0,'active'=>0,'inactive'=>0,'blocked'=>0,'pin'=>0,'charges'=>0];
             $verified=(int)$group['phone_verified_real']===1;
             $summary['total']+=$count;
-            $summary[$state==='active'?'active':'blocked']+=$count;
+            if (isset($summary[$state])) $summary[$state]+=$count;
             $pin['total']+=$count; $pin[$verified?'entered':'pending']+=$count;
             $funnel[$key]['total']+=$count;
-            if ($state==='active') $funnel[$key]['active']+=$count;
-            else $funnel[$key]['blocked']+=$count;
+            if (isset($funnel[$key][$state])) $funnel[$key][$state]+=$count;
             if ($verified) $funnel[$key]['pin']+=$count;
         }
         // A user's IdeaMart and mSpace rows can have different states. Count
