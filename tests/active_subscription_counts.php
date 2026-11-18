@@ -9,7 +9,8 @@ require dirname(__DIR__).'/app/Services/DashboardMetrics.php';
 use Divigamana\Services\DashboardMetrics;
 
 $db=new PDO('sqlite::memory:',null,null,[PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION]);
-$db->exec("CREATE TABLE users (id INTEGER PRIMARY KEY, mobile_e164 TEXT, account_status TEXT, phone_verified_real INTEGER, created_at TEXT DEFAULT '2026-10-24 12:00:00')");
+$now=date('Y-m-d H:i:s');
+$db->exec("CREATE TABLE users (id INTEGER PRIMARY KEY, mobile_e164 TEXT, account_status TEXT, phone_verified_real INTEGER, created_at TEXT DEFAULT '$now')");
 $db->exec('CREATE TABLE user_subscriptions (id INTEGER PRIMARY KEY,user_id INTEGER,status TEXT,is_simulated INTEGER,provider TEXT,accepted_at TEXT)');
 $db->exec('CREATE TABLE payment_transactions (id INTEGER PRIMARY KEY,user_id INTEGER,amount DECIMAL,currency TEXT,status TEXT,is_simulated INTEGER,provider TEXT,created_at TEXT)');
 $user=$db->prepare('INSERT INTO users (id,mobile_e164,account_status,phone_verified_real) VALUES (?,?,?,?)');

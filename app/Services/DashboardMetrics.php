@@ -25,10 +25,14 @@ final class DashboardMetrics {
             if (!isset($funnel[$key])) $funnel[$key]=['total'=>0,'active'=>0,'inactive'=>0,'blocked'=>0,'pin'=>0,'charges'=>0];
             $verified=(int)$group['phone_verified_real']===1;
             $summary['total']+=$count;
-            if (isset($summary[$state])) $summary[$state]+=$count;
+            if ($state==='blocked') $summary['blocked']+=$count;
+            elseif ($state==='active' && $verified) $summary['active']+=$count;
+            else $summary['inactive']+=$count;
             $pin['total']+=$count; $pin[$verified?'entered':'pending']+=$count;
             $funnel[$key]['total']+=$count;
-            if (isset($funnel[$key][$state])) $funnel[$key][$state]+=$count;
+            if ($state==='blocked') $funnel[$key]['blocked']+=$count;
+            elseif ($state==='active' && $verified) $funnel[$key]['active']+=$count;
+            else $funnel[$key]['inactive']+=$count;
             if ($verified) $funnel[$key]['pin']+=$count;
         }
         $todayGroups=$this->rows("SELECT provider, account_status, phone_verified_real, COUNT(*) total FROM (SELECT $provider provider, u.account_status, u.phone_verified_real FROM users u WHERE u.created_at>=? AND u.created_at<?) today_user_states GROUP BY provider,account_status,phone_verified_real",[$todayStart,$tomorrow]);
@@ -38,19 +42,20 @@ final class DashboardMetrics {
             if (!isset($todayFunnel[$key])) $todayFunnel[$key]=['total'=>0,'active'=>0,'inactive'=>0,'blocked'=>0,'pin'=>0,'charges'=>0];
             $verified=(int)$group['phone_verified_real']===1;
             $todayFunnel[$key]['total']+=$count;
-            if (isset($todayFunnel[$key][$state])) $todayFunnel[$key][$state]+=$count;
+            if ($state==='blocked') $todayFunnel[$key]['blocked']+=$count;
+            elseif ($state==='active' && $verified) $todayFunnel[$key]['active']+=$count;
+            else $todayFunnel[$key]['inactive']+=$count;
             $todayPin['total']+=$count; $todayPin[$verified?'entered':'pending']+=$count;
             if ($verified) $todayFunnel[$key]['pin']+=$count;
         }
-        // API platform is determined by the MSISDN prefix. Account status is
-        // sourced from users so the platform totals include users before or
-        // between provider subscription callbacks.
+        // API platform is determined by the MSISDN prefix. Counts are limited
+        // to users created today and use the persisted users-table status.
         $platformCase="CASE
             WHEN SUBSTR(u.mobile_e164,1,5) IN ('+9470','+9471') THEN 'mspace'
             WHEN SUBSTR(u.mobile_e164,1,5) IN ('+9474','+9477','+9476','+9472','+9478','+9475') THEN 'ideamart'
             ELSE 'other'
         END";
-        $platformRows=$this->rows("SELECT $platformCase provider, COUNT(*) total, SUM(CASE WHEN u.account_status='active' THEN 1 ELSE 0 END) active, SUM(CASE WHEN u.account_status<>'active' THEN 1 ELSE 0 END) inactive, SUM(CASE WHEN u.account_status='blocked' THEN 1 ELSE 0 END) blocked FROM users u GROUP BY $platformCase");
+        $platformRows=$this->rows("SELECT $platformCase provider, COUNT(*) total, SUM(CASE WHEN u.account_status='active' AND COALESCE(u.phone_verified_real,0)=1 THEN 1 ELSE 0 END) active, SUM(CASE WHEN u.account_status<>'active' OR COALESCE(u.phone_verified_real,0)<>1 THEN 1 ELSE 0 END) inactive, SUM(CASE WHEN u.account_status='blocked' THEN 1 ELSE 0 END) blocked FROM users u WHERE u.created_at>=? AND u.created_at<? GROUP BY $platformCase",[$todayStart,$tomorrow]);
         foreach ($platformRows as $row) $platform[$row['provider']]=$row;
         $charges=$this->rows("SELECT $provider provider, COUNT(*) attempts FROM payment_transactions p JOIN users u ON u.id=p.user_id WHERE p.is_simulated=0 GROUP BY $provider");
         foreach ($charges as $row) if (isset($funnel[$row['provider']])) $funnel[$row['provider']]['charges']=(int)$row['attempts'];

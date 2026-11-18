@@ -12,7 +12,7 @@ $db->exec('CREATE TABLE payment_transactions (id INTEGER PRIMARY KEY, user_id IN
 $insert=$db->prepare('INSERT INTO users (id,mobile_e164,account_status,phone_verified_real,ideamart_subscriber_id,mspace_subscriber_id,created_at,last_login_at) VALUES (?,?,?,?,?,?,?,?)');
 $insert->execute([1,'+94771234567','active',1,'idea-1',null,'2026-01-01 10:00:00',null]);
 $insert->execute([2,'+94711234567','blocked',1,null,'mspace-2','2026-01-02 10:00:00',null]);
-$insert->execute([3,'+94751234567','active',0,null,null,'2026-01-03 10:00:00',null]);
+$insert->execute([3,'+94751234567','active',1,null,null,'2026-01-03 10:00:00',null]);
 $sub=$db->prepare('INSERT INTO user_subscriptions (id,user_id,provider,status,starts_at,ends_at,accepted_at) VALUES (?,?,?,?,?,?,?)');
 $before=date('Y-m-d H:i:s',time()-3600); $after=date('Y-m-d H:i:s',time()+3600);
 $sub->execute([1,1,'ideamart','active',$before,$after,$before]);
@@ -32,7 +32,7 @@ expect($reporter->report(AdminDashboard::directoryFilters($directory))['count']=
 $directory['search']='94751234567';
 expect($reporter->report(AdminDashboard::directoryFilters($directory))['count']===1,'phone search spans all dates even when a join date is selected');
 $by=[]; foreach ($r['funnel'] as $row) $by[$row['provider']]=$row;
-expect((int)$by['dialog']['total']===1 && (int)$by['dialog']['active']===1 && (int)$by['mobitel']['active']===0 && (int)$by['airtel']['verified']===0,'provider funnel uses mobile prefixes and excludes blocked accounts from active');
+expect((int)$by['dialog']['total']===1 && (int)$by['dialog']['active']===1 && (int)$by['mobitel']['active']===0 && (int)$by['airtel']['verified']===1,'provider funnel uses mobile prefixes and excludes blocked accounts from active');
 expect((int)$r['verification']['ideamart']===1 && (int)$r['verification']['mspace']===1 && count($r['subscriptions'])===3,'verification and rolling subscription groups');
 $db->exec("INSERT INTO audit_events VALUES (1,1,'login_success','2026-01-02 10:00:00'),(2,1,'login_success','2026-01-03 10:00:00')");
 $daily=$reporter->report(array_merge($filters,['day'=>'2026-01-02']));
@@ -46,7 +46,7 @@ $r=$reporter->report($filters,1,['from'=>'2026-01-01','to'=>'2026-01-01']);
 expect((int)$r['verification']['total']===1 && (int)$r['verification']['ideamart']===1 && $r['count']===1,'verification report date range is independent');
 $filters['verification']='unverified';
 expect($reporter->report($filters)['count']===0,'verification filter excludes other states');
-for ($i=4;$i<=30;$i++) $insert->execute([$i,'+9477'.str_pad((string)$i,7,'0',STR_PAD_LEFT),'active',0,null,null,'2026-01-04 10:00:00',null]);
+for ($i=4;$i<=30;$i++) $insert->execute([$i,'+9477'.str_pad((string)$i,7,'0',STR_PAD_LEFT),'active',1,null,null,'2026-01-04 10:00:00',null]);
 $r=$reporter->report(['from'=>'','to'=>'','provider'=>'','verification'=>'','search'=>''],2);
 expect($r['pages']===2 && count($r['users'])===5,'user directory paginates');
 

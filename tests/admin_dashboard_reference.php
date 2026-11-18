@@ -75,15 +75,15 @@ $daily=$directory->report(array_merge($filters,['day'=>'2026-03-10']));
 expectReference($daily['dailyNew']===2 && $daily['dailyLogins']===2,'selected day counts new users and login events within its date boundaries');
 $states=[];
 foreach ($report['users'] as $row) $states[$row['mobile_e164']]=$row['display_status'];
-expectReference($states['+94770000001']==='active' && $states['+94770000002']==='active' && $states['+94770000003']==='active' && $states['+94750000004']==='active' && $states['+94710000005']==='active' && $states['+94770000006']==='blocked' && $states['+94720000007']==='active' && $states['+94710000008']==='active','directory states come from users.account_status');
+expectReference($states['+94770000001']==='active' && $states['+94770000002']==='number_only' && $states['+94770000003']==='active' && $states['+94750000004']==='active' && $states['+94710000005']==='active' && $states['+94770000006']==='blocked' && $states['+94720000007']==='active' && $states['+94710000008']==='number_only','directory states use PIN verification before account status');
 $s=$overview['summary'];
-expectReference((int)$s['total']===8 && (int)$s['active']===7 && (int)$s['inactive']===0 && (int)$s['unsubscribed']===0 && (int)$s['pending']===0 && (int)$s['blocked']===1,'overview states match users.account_status');
-foreach (['active'=>7,'inactive'=>0,'number_only'=>0,'blocked'=>1] as $status=>$expected) {
+expectReference((int)$s['total']===8 && (int)$s['active']===5 && (int)$s['inactive']===2 && (int)$s['unsubscribed']===0 && (int)$s['pending']===0 && (int)$s['blocked']===1,'overview states classify missing PIN users as inactive');
+foreach (['active'=>5,'inactive'=>0,'number_only'=>2,'blocked'=>1] as $status=>$expected) {
     $filtered=$directory->report(array_merge($filters,['status'=>$status]));
     expectReference($filtered['count']===$expected && count($filtered['users'])===$expected,"$status filter matches directory state");
 }
 expectReference((int)$overview['pin']['entered']===6 && (int)$overview['pin']['pending']===2,'PIN totals use current verification independently of block state');
-expectReference((int)$overview['funnel']['mobitel']['total']===2 && (int)$overview['funnel']['mobitel']['active']===2 && (int)$overview['funnel']['mobitel']['blocked']===0,'provider funnel uses account status and mobile prefix');
+expectReference((int)$overview['funnel']['mobitel']['total']===2 && (int)$overview['funnel']['mobitel']['active']===1 && (int)$overview['funnel']['mobitel']['inactive']===1 && (int)$overview['funnel']['mobitel']['blocked']===0,'provider funnel excludes PIN-missing users from active');
 $all=$overview['allCharges'];
 expectReference((int)$all['attempts']===4 && (int)$all['successful']===2 && (int)$all['failed']===1 && (float)$all['revenue']===50.0,'all-time charges exclude simulated transactions and do not treat authorized as failed');
 // Use the same calendar day as the PHP reporting clock, even around midnight.
@@ -93,19 +93,19 @@ expectReference((int)$today['attempts']===$expectedToday[0] && (int)$today['succ
 $db->exec("UPDATE user_subscriptions SET status='cancelled', provider_status='UNREGISTERED' WHERE id=1");
 $changed=$directory->report($filters); $changedOverview=$metrics->report();
 $changedStates=[]; foreach ($changed['users'] as $row) $changedStates[$row['mobile_e164']]=$row['display_status'];
-expectReference($changedStates['+94770000001']==='active' && (int)$changedOverview['summary']['active']===7 && (int)$changedOverview['summary']['unsubscribed']===0,'subscription updates do not change users-table account status');
+expectReference($changedStates['+94770000001']==='active' && (int)$changedOverview['summary']['active']===5 && (int)$changedOverview['summary']['unsubscribed']===0,'subscription updates do not change effective PIN/account status');
 $subscription->execute([10,1,'ideamart','active','REGISTERED',$old,$old,$before]);
 $subscription->execute([11,3,'mspace','active','REGISTERED',$old,$old,$before]);
 $reactivated=$directory->report($filters); $reactivatedOverview=$metrics->report();
 $reactivatedStates=[]; foreach ($reactivated['users'] as $row) $reactivatedStates[$row['mobile_e164']]=$row['display_status'];
-expectReference($reactivatedStates['+94770000001']==='active' && $reactivatedStates['+94770000003']==='active' && (int)$reactivatedOverview['summary']['active']===7, 'subscription rows do not override users-table account status');
+expectReference($reactivatedStates['+94770000001']==='active' && $reactivatedStates['+94770000003']==='active' && (int)$reactivatedOverview['summary']['active']===5, 'subscription rows do not override effective account status');
 $db->exec("UPDATE user_subscriptions SET status='inactive' WHERE id=10");
 $inactiveFilter=$directory->report(array_merge($filters,['status'=>'inactive']));
-expectReference($inactiveFilter['count']===0 && (int)$metrics->report()['summary']['active']===7,'subscription status does not change account status');
+expectReference($inactiveFilter['count']===0 && (int)$metrics->report()['summary']['active']===5,'subscription status does not change effective account status');
 $db->exec("UPDATE user_subscriptions SET status='active' WHERE id=10");
 $activeFilter=$directory->report(array_merge($filters,['status'=>'active']));
 $activeMobiles=array_column($activeFilter['users'],'mobile_e164');
-expectReference($activeFilter['count']===7 && in_array('+94770000001',$activeMobiles,true) && (int)$metrics->report()['summary']['active']===7,'active filter uses users.account_status');
+expectReference($activeFilter['count']===5 && in_array('+94770000001',$activeMobiles,true) && (int)$metrics->report()['summary']['active']===5,'active filter requires account status and PIN verification');
 $db->exec('ALTER TABLE users DROP COLUMN first_login_at');
 $db->exec('DROP TABLE audit_events');
 $legacy=$directory->report($filters);

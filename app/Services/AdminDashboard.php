@@ -8,9 +8,10 @@ use Divigamana\Support\SchemaCapabilities;
 /** Live, read-only reporting over the application's existing records. */
 final class AdminDashboard {
     private const PROVIDER = "CASE WHEN SUBSTR(u.mobile_e164,1,4) IN ('+947') THEN CASE SUBSTR(u.mobile_e164,5,1) WHEN '4' THEN 'dialog' WHEN '7' THEN 'dialog' WHEN '6' THEN 'dialog' WHEN '0' THEN 'mobitel' WHEN '1' THEN 'mobitel' WHEN '5' THEN 'airtel' WHEN '2' THEN 'hutch' WHEN '8' THEN 'hutch' ELSE 'other' END ELSE 'other' END";
-    // Dashboard account state is defined by the users table.
-    public const ACTIVE = "u.account_status='active'";
-    public const STATE = "u.account_status";
+    // PIN verification determines whether a user is a usable active account.
+    // Blocked remains the highest-priority state.
+    public const ACTIVE = "(u.account_status='active' AND COALESCE(u.phone_verified_real,0)=1)";
+    public const STATE = "CASE WHEN u.account_status='blocked' THEN 'blocked' WHEN COALESCE(u.phone_verified_real,0)<>1 THEN 'number_only' WHEN u.account_status='inactive' THEN 'inactive' ELSE 'active' END";
     private PDO $db;
     public function __construct(PDO $db) { $this->db=$db; }
     private function rows(string $sql, array $params=[]): array {
@@ -26,10 +27,10 @@ final class AdminDashboard {
     }
     public function report(array $filters, int $page=1, array $verificationDates=[], int $subscriptionPage=1): array {
         $now=date('Y-m-d H:i:s');
-        $active=self::ACTIVE; $provider=self::PROVIDER;
-        $summary=$this->rows("SELECT COUNT(*) total, COALESCE(SUM(CASE WHEN u.account_status<>'blocked' AND $active THEN 1 ELSE 0 END),0) active, COALESCE(SUM(CASE WHEN u.account_status='blocked' THEN 1 ELSE 0 END),0) blocked FROM users u")[0];
+        $active=self::ACTIVE; $provider=self::PROVIDER; $state=self::STATE;
+        $summary=$this->rows("SELECT COUNT(*) total, COALESCE(SUM(CASE WHEN ($state)='active' THEN 1 ELSE 0 END),0) active, COALESCE(SUM(CASE WHEN ($state)='blocked' THEN 1 ELSE 0 END),0) blocked FROM users u")[0];
         $summary['inactive']=(int)$summary['total']-(int)$summary['active']-(int)$summary['blocked'];
-        $funnel=$this->rows("SELECT $provider provider, COUNT(*) total, SUM(CASE WHEN u.phone_verified_real=1 THEN 1 ELSE 0 END) verified, SUM(CASE WHEN u.account_status='active' THEN 1 ELSE 0 END) active, SUM(CASE WHEN u.account_status='inactive' THEN 1 ELSE 0 END) inactive, SUM(CASE WHEN u.account_status='blocked' THEN 1 ELSE 0 END) blocked FROM users u GROUP BY $provider");
+        $funnel=$this->rows("SELECT $provider provider, COUNT(*) total, SUM(CASE WHEN u.phone_verified_real=1 THEN 1 ELSE 0 END) verified, SUM(CASE WHEN ($state)='active' THEN 1 ELSE 0 END) active, SUM(CASE WHEN ($state) IN ('inactive','number_only') THEN 1 ELSE 0 END) inactive, SUM(CASE WHEN ($state)='blocked' THEN 1 ELSE 0 END) blocked FROM users u GROUP BY $provider");
         $where=[]; $params=[];
         if ($filters['from']!=='') { $where[]='u.created_at>=?'; $params[]=$filters['from'].' 00:00:00'; }
         if ($filters['to']!=='') { $where[]='u.created_at<?'; $params[]=(new \DateTimeImmutable($filters['to']))->modify('+1 day')->format('Y-m-d').' 00:00:00'; }
