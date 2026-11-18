@@ -8,10 +8,10 @@ use Divigamana\Support\SchemaCapabilities;
 /** Live, read-only reporting over the application's existing records. */
 final class AdminDashboard {
     private const PROVIDER = "CASE WHEN SUBSTR(u.mobile_e164,1,4) IN ('+947') THEN CASE SUBSTR(u.mobile_e164,5,1) WHEN '4' THEN 'dialog' WHEN '7' THEN 'dialog' WHEN '6' THEN 'dialog' WHEN '0' THEN 'mobitel' WHEN '1' THEN 'mobitel' WHEN '5' THEN 'airtel' WHEN '2' THEN 'hutch' WHEN '8' THEN 'hutch' ELSE 'other' END ELSE 'other' END";
-    // PIN verification determines whether a user is a usable active account.
-    // Blocked remains the highest-priority state.
-    public const ACTIVE = "(u.account_status='active' AND COALESCE(u.phone_verified_real,0)=1)";
-    public const STATE = "CASE WHEN u.account_status='blocked' THEN 'blocked' WHEN COALESCE(u.phone_verified_real,0)<>1 THEN 'number_only' WHEN u.account_status='inactive' THEN 'inactive' ELSE 'active' END";
+    // PIN verification determines Active vs Inactive. Blocked remains the
+    // highest-priority state.
+    public const ACTIVE = "(COALESCE(u.phone_verified_real,0)=1)";
+    public const STATE = "CASE WHEN u.account_status='blocked' THEN 'blocked' WHEN COALESCE(u.phone_verified_real,0)<>1 THEN 'number_only' ELSE 'active' END";
     private PDO $db;
     public function __construct(PDO $db) { $this->db=$db; }
     private function rows(string $sql, array $params=[]): array {

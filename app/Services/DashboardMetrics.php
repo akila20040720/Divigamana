@@ -26,12 +26,12 @@ final class DashboardMetrics {
             $verified=(int)$group['phone_verified_real']===1;
             $summary['total']+=$count;
             if ($state==='blocked') $summary['blocked']+=$count;
-            elseif ($state==='active' && $verified) $summary['active']+=$count;
+            elseif ($verified) $summary['active']+=$count;
             else $summary['inactive']+=$count;
             $pin['total']+=$count; $pin[$verified?'entered':'pending']+=$count;
             $funnel[$key]['total']+=$count;
             if ($state==='blocked') $funnel[$key]['blocked']+=$count;
-            elseif ($state==='active' && $verified) $funnel[$key]['active']+=$count;
+            elseif ($verified) $funnel[$key]['active']+=$count;
             else $funnel[$key]['inactive']+=$count;
             if ($verified) $funnel[$key]['pin']+=$count;
         }
@@ -43,7 +43,7 @@ final class DashboardMetrics {
             $verified=(int)$group['phone_verified_real']===1;
             $todayFunnel[$key]['total']+=$count;
             if ($state==='blocked') $todayFunnel[$key]['blocked']+=$count;
-            elseif ($state==='active' && $verified) $todayFunnel[$key]['active']+=$count;
+            elseif ($verified) $todayFunnel[$key]['active']+=$count;
             else $todayFunnel[$key]['inactive']+=$count;
             $todayPin['total']+=$count; $todayPin[$verified?'entered':'pending']+=$count;
             if ($verified) $todayFunnel[$key]['pin']+=$count;
@@ -55,7 +55,7 @@ final class DashboardMetrics {
             WHEN SUBSTR(u.mobile_e164,1,5) IN ('+9474','+9477','+9476','+9472','+9478','+9475') THEN 'ideamart'
             ELSE 'other'
         END";
-        $platformRows=$this->rows("SELECT $platformCase provider, COUNT(*) total, SUM(CASE WHEN u.account_status='active' AND COALESCE(u.phone_verified_real,0)=1 THEN 1 ELSE 0 END) active, SUM(CASE WHEN u.account_status<>'active' OR COALESCE(u.phone_verified_real,0)<>1 THEN 1 ELSE 0 END) inactive, SUM(CASE WHEN u.account_status='blocked' THEN 1 ELSE 0 END) blocked FROM users u WHERE u.created_at>=? AND u.created_at<? GROUP BY $platformCase",[$todayStart,$tomorrow]);
+        $platformRows=$this->rows("SELECT $platformCase provider, COUNT(*) total, SUM(CASE WHEN COALESCE(u.phone_verified_real,0)=1 AND u.account_status<>'blocked' THEN 1 ELSE 0 END) active, SUM(CASE WHEN COALESCE(u.phone_verified_real,0)<>1 THEN 1 ELSE 0 END) inactive, SUM(CASE WHEN u.account_status='blocked' THEN 1 ELSE 0 END) blocked FROM users u WHERE u.created_at>=? AND u.created_at<? GROUP BY $platformCase",[$todayStart,$tomorrow]);
         foreach ($platformRows as $row) $platform[$row['provider']]=$row;
         $charges=$this->rows("SELECT $provider provider, COUNT(*) attempts FROM payment_transactions p JOIN users u ON u.id=p.user_id WHERE p.is_simulated=0 GROUP BY $provider");
         foreach ($charges as $row) if (isset($funnel[$row['provider']])) $funnel[$row['provider']]['charges']=(int)$row['attempts'];

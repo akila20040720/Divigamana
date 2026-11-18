@@ -61,6 +61,7 @@ foreach ([
     [5,1,900,'LKR','simulated_confirmed',1,$before],
 ] as $row) $payment->execute($row);
 $db->exec("UPDATE payment_transactions SET provider=CASE WHEN is_simulated=1 THEN 'simulated' ELSE 'ideamart' END");
+$db->exec("UPDATE users SET account_status='inactive' WHERE id=1");
 function expectReference(bool $condition,string $label): void {
     if (!$condition) { fwrite(STDERR,"FAIL $label\n"); exit(1); }
     echo "PASS $label\n";
@@ -105,7 +106,7 @@ expectReference($inactiveFilter['count']===0 && (int)$metrics->report()['summary
 $db->exec("UPDATE user_subscriptions SET status='active' WHERE id=10");
 $activeFilter=$directory->report(array_merge($filters,['status'=>'active']));
 $activeMobiles=array_column($activeFilter['users'],'mobile_e164');
-expectReference($activeFilter['count']===5 && in_array('+94770000001',$activeMobiles,true) && (int)$metrics->report()['summary']['active']===5,'active filter requires account status and PIN verification');
+expectReference($activeFilter['count']===5 && in_array('+94770000001',$activeMobiles,true) && (int)$metrics->report()['summary']['active']===5,'active filter uses PIN verification and keeps PIN-entered users active');
 $db->exec('ALTER TABLE users DROP COLUMN first_login_at');
 $db->exec('DROP TABLE audit_events');
 $legacy=$directory->report($filters);
