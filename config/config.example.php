@@ -1,182 +1,116 @@
-<?php
-/**
- * Divigamana - Production Configuration
- * File: config/local.php
- *
- * All configuration values are hardcoded.
- * No .env file or getenv() required.
- *
- * SECURITY:
- * - Never commit this file to Git.
- * - Keep it outside public_html where possible.
- * - Rotate exposed credentials before production use.
- */
+48,801
+Total users 
+Everyone who entered a number
+31,360 
+Active users 
+Entered the PIN
 
-return [
+Inactive users 
+1,979 unsubscribed ·  PIN pending
 
-    /*
-    |--------------------------------------------------------------------------
-    | APPLICATION CONFIGURATION
-    |--------------------------------------------------------------------------
-    */
+Blocked
+Blocked by admin 
+PROVIDER FUNNEL
+PROVIDER / USERS ACTIVE · INACTIVE · PIN · CHARGES
+Dialog / 455
+Provider Base: 
+265 · 190 · 266 · 0
+Mobitel / 99
+Provider Base: 6,745
+62 · 37 · 65 · 0
+Airtel / 57
+Provider Base: 2,412
+37 · 20 · 37 · 0
+Hutch / 88
+Provider Base: 2,855
+64 · 24 · 64 · 0
+API PLATFORM / USERS
+ACTIVE · INACTIVE
+Mobitel / 99
+62 · 37
+Ideamart / 600
+366 · 234
+Total users
+699
+PIN STATUS
+Total users
+699
+PIN entered
+432
+PIN not entered
+267
+Entry / pending rate
+61.80% / 38.20%  
+CHARGE SUMMARY · TODAY
+Attempts
+0
+Successful / failed
+0 / 0
+Success / failure rate
+0.00% / 0.00%
+Collected revenue
+LKR 0.00
+Active period / active-base value
+days / LKR 0.00
+ALL-TIME TOTALS
+COUNT · REVENUE · AVERAGE
+Attempts / successful / failed
+0 / 0 / 0
+Revenue / average successful charge
+LKR 0.00 / LKR 0.00
+PROVIDER BASE
+Current active users by mobile provider.
+Dialog
+Current active users
+19,348
+Mobitel
+Current active users
+6,745
+Airtel
+Current active users
+2,412
+Hutch
+Current active users
+2,855
+TOTAL PROVIDER BASE
+31,360
+DAILY CHARGES · LAST 14 DAYS
+No charging transactions recorded.
+SUBSCRIPTIONS · LAST 24 HOURS
+2026-11-17 12:00
+3
+2026-11-17 09:00
+13
+2026-11-17 08:00
+36
+2026-11-17 07:00
+13
+2026-11-17 06:00
+3
+2026-11-17 05:00
+1
+2026-11-17 04:00
+1
+2026-11-17 01:00
+5
+2026-11-16 12:00
+13
+2026-11-16 11:00
+35
+2026-11-16 10:00
+51
+2026-11-16 09:00
+22
+‹ Prev
+Today 439 new · 441 logins
 
-    'app_env' => 'production',
-
-    'app_url' => 'https://divigamana.lk',
-
-    'demo_otp_enabled' => false,
-
-    'skip_database_check' => false,
-
-
-    /*
-    |--------------------------------------------------------------------------
-    | ADMIN AUTHENTICATION
-    |--------------------------------------------------------------------------
-    */
-
-    'admin' => [
-        'username' => 'admin',
-        'password' => 'dc4cad4858b9fdebf7b508bd1d7c48bc8f73f0b6f6fb5d48',
-    ],
-
-
-    /*
-    |--------------------------------------------------------------------------
-    | MYSQL DATABASE CONFIGURATION
-    |--------------------------------------------------------------------------
-    */
-
-    'db' => [
-        'host' => 'localhost',
-        'port' => 3306,
-        'name' => 'rakiyacl_divigamana',
-        'user' => 'rakiyacl_divigamana_dash',
-        'pass' => 'Vjtseg_3348',
-    ],
-
-
-    /*
-    |--------------------------------------------------------------------------
-    | QWEN AI - ALIBABA CLOUD
-    |--------------------------------------------------------------------------
-    */
-
-    'qwen' => [
-
-        'api_key' => 'sk-sp-H.LPILX.YvDk.MEQCIFqYNwvF_nefduF8jmssrvHbNKo0IyqKuw6vUtgo-35WAiAIiMLjU6pVF5SezKGy9WgsAnHiH8rpngVucY-gqgk8Gg',
-
-        'base_url' => 'https://token-plan.ap-southeast-1.maas.aliyuncs.com/',
-
-        'fallback_base_url' => '',
-
-        'model' => 'qwen4-max-preview',
-
-        'timeout_seconds' => 75,
-
-        'max_output_tokens' => 4000,
-
-        'temperature' => 0.65,
-
-        'mock_mode' => false,
-    ],
-
-
-    /*
-    |--------------------------------------------------------------------------
-    | IDEAMART - DIALOG CONFIGURATION
-    |--------------------------------------------------------------------------
-    */
-
-    'ideamart_live' => true,
-
-    'ideamart_caas_live' => true,
-
-    'ideamart' => [
-
-        'application_id' => 'APP_068524',
-
-        'password' => '5f5e14571230f6b8c701e57076e7c4c7',
-
-        'otp_request_url' =>
-            'https://api.ideamart.io/subscription/otp/request',
-
-        'otp_verify_url' =>
-            'https://api.ideamart.io/subscription/otp/verify',
-
-        'subscription_url' =>
-            'https://api.ideamart.io/subscription/send',
-
-        'subscription_status_url' =>
-            'https://api.ideamart.io/subscription/getStatus',
-
-        'subscription_base_url' =>
-            'https://api.ideamart.io/subscription/query-base',
-
-        'caas_debit_url' =>
-            'https://api.ideamart.io/caas/direct/debit',
-
-        'caas_balance_url' =>
-            'https://api.ideamart.io/caas/balance/query',
-
-        'caas_account_id' => '',
-
-        'caas_payment_instrument' => 'MobileAccount',
-
-        'caas_callback_token' => '',
-    ],
-
-
-    /*
-    |--------------------------------------------------------------------------
-    | MSPACE - MOBITEL CONFIGURATION
-    |--------------------------------------------------------------------------
-    */
-
-    'mspace_live' => true,
-
-    'mspace_caas_live' => true,
-
-    'mspace' => [
-
-        'application_id' => 'APP_010616',
-
-        'password' => '79622018288754ef5f38521718b4d8cc',
-
-        'otp_request_url' =>
-            'https://api.mspace.lk/otp/request',
-
-        'otp_verify_url' =>
-            'https://api.mspace.lk/otp/verify',
-
-        'sms_url' =>
-            'https://api.mspace.lk/sms/send',
-
-        'sms_source_address' => '77010',
-
-        'caas_debit_url' =>
-            'https://api.mspace.lk/caas/direct/debit',
-
-        'caas_otp_verify_url' =>
-            'https://api.mspace.lk/caas/otp/verify',
-    ],
-
-
-    /*
-    |--------------------------------------------------------------------------
-    | RAHU KALAYA CONFIGURATION
-    |--------------------------------------------------------------------------
-    */
-
-    'rahu' => [
-
-        'location' => 'Colombo, Sri Lanka',
-
-        'sunrise' => '06:05',
-
-        'sunset' => '18:20',
-    ],
-
-];
-
-
+All
+Active
+Inactive (Unsubscribed)
+Inactive (PIN not entered)
+Blocked
+Phone
+Status
+First visit
+First login
+Last login
