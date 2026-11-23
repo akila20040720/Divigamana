@@ -1,17 +1,17 @@
 48,801
-Total users 
+Total users
 Everyone who entered a number
-31,360 
-Active users 
+31,360
+Active users
 Entered the PIN
 
-Inactive users 
-1,979 unsubscribed ·  PIN pending
+Inactive users
+1,979 unsubscribed · PIN pending
 
 Blocked
-Blocked by admin 
+Blocked by admin
 PROVIDER FUNNEL
-PROVIDER / USERS ACTIVE · INACTIVE · PIN · CHARGES
+PROVIDER / USERSACTIVE · INACTIVE · PIN · CHARGES
 Dialog / 455
 Provider Base: 
 265 · 190 · 266 · 0
@@ -40,7 +40,7 @@ PIN entered
 PIN not entered
 267
 Entry / pending rate
-61.80% / 38.20%  
+61.80% / 38.20%
 CHARGE SUMMARY · TODAY
 Attempts
 0
